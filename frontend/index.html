@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Anxiety Monitor</title>
+    <link rel="stylesheet" href="/css/style.css" />
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  </head>
+  <body>
+    <div class="layout">
+      <header class="header">
+        <h1>Physiological state</h1>
+        <p class="sub">Live HR / GSR · rule + ML fusion · mock or HC-05</p>
+      </header>
+
+      <section class="status-bar" id="connBar">
+        <span class="dot" id="connDot"></span>
+        <span id="connText">Connecting…</span>
+      </section>
+
+      <div class="sensor-warning" id="sensorWarning" style="display:none">
+        <span class="sw-icon">✋</span>
+        <span id="sensorWarningText">Place finger on sensor</span>
+      </div>
+
+      <section class="cards">
+        <div class="card">
+          <h2>Heart rate</h2>
+          <p class="value" id="hrVal">—</p>
+          <p class="unit">bpm</p>
+        </div>
+        <div class="card">
+          <h2>GSR</h2>
+          <p class="value" id="gsrVal">—</p>
+          <p class="unit">raw</p>
+        </div>
+        <div class="card state-card" id="stateCard">
+          <h2>State</h2>
+          <p class="state" id="stateVal">CALM</p>
+          <p class="meta" id="metaVal">Rules · ML</p>
+        </div>
+      </section>
+
+      <section class="chart-wrap">
+        <canvas id="liveChart" height="120"></canvas>
+      </section>
+
+      <!-- ── Device Instructions ───────────────────────────────────────────── -->
+      <details class="instructions" id="deviceInstructions">
+        <summary class="instructions-toggle">
+          <span class="instr-icon">📋</span>
+          <span>How to use the device</span>
+          <span class="instr-chevron">▾</span>
+        </summary>
+
+        <div class="instr-body">
+          <div class="instr-steps">
+
+            <div class="instr-step">
+              <span class="step-badge">1</span>
+              <div>
+                <strong>Wear the device properly</strong>
+                <p>Strap the sensor securely to your fingertip or wrist as instructed. Ensure the optical HR sensor and GSR electrodes have firm, consistent skin contact before powering on.</p>
+              </div>
+            </div>
+
+            <div class="instr-step">
+              <span class="step-badge">2</span>
+              <div>
+                <strong>Power on — listen for 2 beeps</strong>
+                <p>When the device boots it plays <strong>2 short buzzer beeps</strong>. This confirms firmware has initialised and Bluetooth is broadcasting. Wait for the status bar above to turn <span class="pill-ok">green</span> before starting a session.</p>
+              </div>
+            </div>
+
+            <div class="instr-step">
+              <span class="step-badge">3</span>
+              <div>
+                <strong>One buzz = one data point recorded</strong>
+                <p>After connecting, the buzzer pulses <strong>once per second</strong>. Each buzz means HR and GSR values have been sampled and sent to this dashboard. The live chart updates in sync.</p>
+              </div>
+            </div>
+
+            <div class="instr-step instr-step--warn">
+              <span class="step-badge step-badge--warn">⚠</span>
+              <div>
+                <strong>Keep your hand still — no accelerometer on board</strong>
+                <p>This device does <em>not</em> include an accelerometer, so motion artefacts <strong>cannot be filtered automatically</strong>. Any movement of the hand or wrist while wearing the device will cause false HR spikes that the ML model will misclassify as stress or anxiety.</p>
+                <p class="instr-tip">✅ Correct use: wear the device, place both hands on a flat surface, and <strong>sit calmly</strong> for the duration of the session.</p>
+              </div>
+            </div>
+
+            <div class="instr-step">
+              <span class="step-badge">4</span>
+              <div>
+                <strong>Calibration window (~30 s)</strong>
+                <p>The first 30 seconds are used to establish your personal baseline HR and GSR. Sit still during this period. The footer will change from <em>"Baseline calibrating…"</em> to show your baseline values once complete.</p>
+              </div>
+            </div>
+
+          </div><!-- /instr-steps -->
+        </div><!-- /instr-body -->
+      </details>
+
+      <footer class="footer">
+        <span id="baselineInfo">Baseline calibrating…</span>
+        <span id="windowInfo"></span>
+      </footer>
+    </div>
+    <script src="/js/app.js"></script>
+  </body>
+</html>

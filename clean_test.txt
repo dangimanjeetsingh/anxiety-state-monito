@@ -1,0 +1,1 @@
+{"alert":null,"baseline_gsr":381.25986902577165,"baseline_hr":70.06426120189415,"calibrated":true,"connection":"mock","connection_detail":"simulated","features":null,"fusion_source":"rules","gsr":383.5461499802914,"hr":70.21012227517852,"ml_state":null,"pattern":null,"rule_state":"CALM","state":"CALM","window_samples":36}
