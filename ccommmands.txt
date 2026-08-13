@@ -1,0 +1,4 @@
+http://127.0.0.1:5000/
+cd "c:\Users\manje\Desktop\My Projects\mini-project\project-code"
+$env:ANXIETY_USE_MOCK_SERIAL=1
+python app.py
