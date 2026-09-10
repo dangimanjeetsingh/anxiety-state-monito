@@ -10,6 +10,14 @@ const BASELINE_INFO = document.getElementById("baselineInfo");
 const WINDOW_INFO   = document.getElementById("windowInfo");
 const SW_BANNER     = document.getElementById("sensorWarning");
 const SW_TEXT       = document.getElementById("sensorWarningText");
+const CAL_BANNER    = document.getElementById("calibrationBanner");
+const CAL_TITLE     = document.getElementById("calibrationTitle");
+const CAL_MESSAGE   = document.getElementById("calibrationMessage");
+const CAL_STATUS    = document.getElementById("calibrationStatus");
+const GUIDE_TOGGLE  = document.getElementById("guideToggle");
+const GUIDE_DRAWER  = document.getElementById("interpretationDrawer");
+const GUIDE_BACKDROP = document.getElementById("guideBackdrop");
+const GUIDE_CLOSE   = document.getElementById("guideClose");
 
 // ── Chart ────────────────────────────────────────────────────────────────────
 const MAX_PTS = 60;
@@ -29,6 +37,7 @@ function initChart() {
     },
     options: {
       responsive: true,
+      maintainAspectRatio: false,
       animation: false,
       scales: {
         x: { ticks: { color: "#9aa3b2", maxTicksLimit: 8 }, grid: { color: "rgba(255,255,255,0.06)" } },
@@ -84,8 +93,58 @@ function setSensorWarning(warning) {
 }
 
 // ── Main render ───────────────────────────────────────────────────────────────
+function setCalibrationStatus(d) {
+  if (!CAL_BANNER || !CAL_TITLE || !CAL_MESSAGE || !CAL_STATUS) return;
+
+  const conn = (d.connection || "").toLowerCase();
+  const connected = conn === "connected" || conn === "mock";
+  const hasReading = d.hr != null && d.gsr != null;
+  const calibrated = d.calibrated === true;
+
+  CAL_BANNER.classList.toggle("is-ready", calibrated);
+  CAL_BANNER.classList.toggle("is-waiting", !connected || !hasReading);
+
+  if (!connected) {
+    CAL_TITLE.textContent = "Waiting for sensor connection";
+    CAL_MESSAGE.textContent = "Connect the device to begin your personal baseline reading.";
+    CAL_STATUS.textContent = "Waiting";
+  } else if (!hasReading) {
+    CAL_TITLE.textContent = "Waiting for valid sensor readings";
+    CAL_MESSAGE.textContent = "Keep the sensors in contact with your skin to start calibration.";
+    CAL_STATUS.textContent = "Preparing";
+  } else if (!calibrated) {
+    CAL_TITLE.textContent = "Baseline calibration in progress";
+    CAL_MESSAGE.textContent = "Please sit calmly, keep your hand still, and breathe normally. Your personal baseline is being measured; predictions will start when it is ready.";
+    CAL_STATUS.textContent = "Calibrating";
+  } else {
+    CAL_TITLE.textContent = "Baseline complete";
+    CAL_MESSAGE.textContent = "Your personal baseline is ready. Live state predictions are now active.";
+    CAL_STATUS.textContent = "Prediction active";
+  }
+}
+
+function setGuideOpen(open) {
+  if (!GUIDE_TOGGLE || !GUIDE_DRAWER || !GUIDE_BACKDROP) return;
+  GUIDE_DRAWER.hidden = !open;
+  GUIDE_BACKDROP.hidden = !open;
+  GUIDE_TOGGLE.setAttribute("aria-expanded", String(open));
+  document.body.classList.toggle("drawer-open", open);
+  if (open && GUIDE_CLOSE) GUIDE_CLOSE.focus();
+  if (!open) GUIDE_TOGGLE.focus();
+}
+
+if (GUIDE_TOGGLE && GUIDE_DRAWER && GUIDE_BACKDROP) {
+  GUIDE_TOGGLE.addEventListener("click", () => setGuideOpen(GUIDE_DRAWER.hidden));
+  GUIDE_CLOSE?.addEventListener("click", () => setGuideOpen(false));
+  GUIDE_BACKDROP.addEventListener("click", () => setGuideOpen(false));
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && !GUIDE_DRAWER.hidden) setGuideOpen(false);
+  });
+}
+
 function render(d) {
   const age = d.server_time ? ((Date.now()/1000 - d.server_time).toFixed(1) + "s old") : "?";
+  setCalibrationStatus(d);
 
   // If no sensor data is arriving, blank the value boxes and bail early
   const conn = (d.connection || "").toLowerCase();
@@ -100,23 +159,26 @@ function render(d) {
   if (HR_EL)  HR_EL.textContent  = d.hr  != null ? Math.round(d.hr)  : "--";
   if (GSR_EL) GSR_EL.textContent = d.gsr != null ? Math.round(d.gsr) : "--";
 
-  if (STATE_EL) STATE_EL.textContent = d.state || "--";
+  const calibrating = !d.calibrated && (conn === "connected" || conn === "mock");
+  if (STATE_EL) STATE_EL.textContent = calibrating ? "CALIBRATING" : (d.state || "--");
   if (STATE_CARD) {
     STATE_CARD.classList.remove("state-calm","state-stress","state-anxiety","state-active");
-    var cls = stateClass(d.state);
+    var cls = calibrating ? "" : stateClass(d.state);
     if (cls) STATE_CARD.classList.add(cls);
   }
 
   if (META_EL)
-    META_EL.textContent = "Rules: " + (d.rule_state||"--") + " · ML: " + (d.ml_state||"--") + " · " + (d.fusion_source||"--");
+    META_EL.textContent = calibrating
+      ? "Sit calmly — prediction starts after calibration"
+      : "Rules: " + (d.rule_state||"--") + " · ML: " + (d.ml_state||"--") + " · " + (d.fusion_source||"--");
 
   setConn(d.connection, d.connection_detail);
   setSensorWarning(d.sensor_warning || null);
 
   if (BASELINE_INFO)
-    BASELINE_INFO.textContent = (d.baseline_hr != null && d.baseline_gsr != null)
+    BASELINE_INFO.textContent = d.calibrated && d.baseline_hr != null && d.baseline_gsr != null
       ? "Baseline HR " + Math.round(d.baseline_hr) + " · GSR " + Math.round(d.baseline_gsr)
-      : "Baseline calibrating...";
+      : "Baseline calibration in progress — sit calmly";
   if (WINDOW_INFO)
     WINDOW_INFO.textContent = d.window_samples != null
       ? "Window: " + d.window_samples + " samples · calibrated: " + d.calibrated

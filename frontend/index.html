@@ -10,13 +10,29 @@
   <body>
     <div class="layout">
       <header class="header">
-        <h1>Physiological state</h1>
-        <p class="sub">Live HR / GSR · rule + ML fusion · mock or HC-05</p>
+        <div>
+          <p class="header-kicker">Live wellness monitor</p>
+          <h1>Physiological state</h1>
+          <p class="sub">Live HR / GSR · rule + ML fusion · HC-05</p>
+        </div>
+        <button class="guide-toggle" id="guideToggle" type="button" aria-controls="interpretationDrawer" aria-expanded="false">
+          <span aria-hidden="true">⌁</span>
+          Method &amp; evidence
+        </button>
       </header>
 
       <section class="status-bar" id="connBar">
         <span class="dot" id="connDot"></span>
         <span id="connText">Connecting…</span>
+      </section>
+
+      <section class="calibration-banner" id="calibrationBanner" role="status" aria-live="polite">
+        <span class="calibration-icon" aria-hidden="true">&#9203;</span>
+        <div class="calibration-copy">
+          <p class="calibration-title" id="calibrationTitle">Waiting for sensor data</p>
+          <p class="calibration-message" id="calibrationMessage">Connect the device to begin your personal baseline reading.</p>
+        </div>
+        <span class="calibration-status" id="calibrationStatus">Waiting</span>
       </section>
 
       <div class="sensor-warning" id="sensorWarning" style="display:none">
@@ -45,6 +61,142 @@
       <section class="chart-wrap">
         <canvas id="liveChart" height="120"></canvas>
       </section>
+
+      <div class="guide-backdrop" id="guideBackdrop" hidden></div>
+      <aside class="guide-drawer" id="interpretationDrawer" role="dialog" aria-modal="true" aria-labelledby="interpretationTitle" hidden>
+        <div class="guide-drawer-header">
+          <div>
+            <p class="eyebrow">Transparent decision guide</p>
+            <h2 id="interpretationTitle">Method &amp; evidence</h2>
+          </div>
+          <button class="guide-close" id="guideClose" type="button" aria-label="Close method and evidence panel">&times;</button>
+        </div>
+        <div class="guide-drawer-body">
+        <div class="interpretation-heading">
+          <div>
+            <h3>How the dashboard estimates a state</h3>
+          </div>
+          <span class="interpretation-badge">Baseline-relative</span>
+        </div>
+
+        <p class="interpretation-intro">
+          A quick view of how the dashboard turns live readings into a reliable wellness estimate.
+        </p>
+
+        <section class="evidence-summary" aria-label="Evidence status summary">
+          <article class="evidence-card evidence-card--supported">
+            <span class="evidence-label">Evidence-informed</span>
+            <h4>Personalized multi-signal monitoring</h4>
+            <p>HR and EDA/GSR can reflect autonomic arousal; the comparison starts from your own baseline.</p>
+            <a href="https://pmc.ncbi.nlm.nih.gov/articles/PMC11126007/" target="_blank" rel="noopener noreferrer">Read personalized-wearable review <span aria-hidden="true">↗</span></a>
+          </article>
+          <article class="evidence-card evidence-card--validation">
+            <span class="evidence-label">Calibrated alert bands</span>
+            <h4>Tiered change detection</h4>
+            <p>Moderate and higher-alert bands are checked only after smoothing, quality checks, and sustained change.</p>
+            <a href="https://pmc.ncbi.nlm.nih.gov/articles/PMC11233111/" target="_blank" rel="noopener noreferrer">Read wearable-limitations review <span aria-hidden="true">↗</span></a>
+          </article>
+        </section>
+
+        <section class="trust-flow" aria-labelledby="thresholdRationaleTitle">
+          <div class="trust-flow-heading">
+            <p class="eyebrow">Trust at a glance</p>
+            <h3 id="thresholdRationaleTitle">Why the estimate is more reliable</h3>
+          </div>
+          <ol>
+            <li><span>1</span><div><strong>Personal baseline</strong><small>First ~30 seconds establish your own reference level.</small></div></li>
+            <li><span>2</span><div><strong>Cleaner readings</strong><small>Out-of-range values are rejected and readings are smoothed.</small></div></li>
+            <li><span>3</span><div><strong>Two-signal check</strong><small>HR and GSR changes are compared with that baseline.</small></div></li>
+            <li><span>4</span><div><strong>Confirmation gate</strong><small>Quality, sustained change, and ML confidence help prevent quick false alerts.</small></div></li>
+          </ol>
+        </section>
+
+        <div class="table-scroll" tabindex="0" aria-label="State prediction comparison table">
+          <table class="interpretation-table">
+            <thead>
+              <tr>
+                <th scope="col">UI state</th>
+                <th scope="col">Decision rule</th>
+                <th scope="col">Research context &amp; source</th>
+                <th scope="col">Validation &amp; safeguard</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <th scope="row"><span class="state-tag state-tag--calibration">Calibrating</span></th>
+                <td data-label="Decision rule">Set a personal baseline (~30 seconds).</td>
+                <td data-label="Evidence">Within-person comparison. <a class="inline-source" href="https://pmc.ncbi.nlm.nih.gov/articles/PMC11126007/" target="_blank" rel="noopener noreferrer">[1]</a></td>
+                <td data-label="Safeguard">No prediction is shown yet.</td>
+              </tr>
+              <tr>
+                <th scope="row"><span class="state-tag state-tag--calm">Calm</span></th>
+                <td data-label="Decision rule">No persistent elevation from baseline.</td>
+                <td data-label="Evidence">No elevated HR/GSR pattern is detected.</td>
+                <td data-label="Safeguard">One reading cannot change the state.</td>
+              </tr>
+              <tr>
+                <th scope="row"><span class="state-tag state-tag--stress">Stress</span></th>
+                <td data-label="Decision rule"><strong>HR &gt; baseline + 6 bpm</strong> <em>or</em> <strong>GSR &gt; baseline + 40</strong>.</td>
+                <td data-label="Evidence">HR and EDA/GSR can reflect autonomic arousal. <a class="inline-source" href="https://pmc.ncbi.nlm.nih.gov/articles/PMC11126007/" target="_blank" rel="noopener noreferrer">[1]</a></td>
+                <td data-label="Safeguard">Smoothed, sustained input is required.</td>
+              </tr>
+              <tr>
+                <th scope="row"><span class="state-tag state-tag--anxiety">Anxiety</span></th>
+                <td data-label="Decision rule"><strong>HR &gt; baseline + 12 bpm</strong> <em>and</em> <strong>GSR &gt; baseline + 80</strong>, or high-confidence ML.</td>
+                <td data-label="Evidence">A combined rise can indicate stronger arousal. <a class="inline-source" href="https://pmc.ncbi.nlm.nih.gov/articles/PMC11126007/" target="_blank" rel="noopener noreferrer">[1]</a></td>
+                <td data-label="Safeguard">Dual-signal and confidence checks apply.</td>
+              </tr>
+              <tr>
+                <th scope="row"><span class="state-tag state-tag--recovery">Recovery</span></th>
+                <td data-label="Decision rule">Falling HR trend after an anxiety state.</td>
+                <td data-label="Evidence">Can indicate reduced arousal.</td>
+                <td data-label="Safeguard">Pattern must hold for 5 seconds.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <aside class="interpretation-note">
+          <strong>Important:</strong> HR and EDA/GSR are useful autonomic signals, but they are affected by movement, exercise, sensor placement, and other factors. This educational wellness prototype cannot diagnose a mental-health or medical condition. If you are concerned about symptoms, consult a qualified healthcare professional.
+        </aside>
+
+        <section class="ml-model-card" aria-labelledby="mlModelTitle">
+          <div class="ml-model-header">
+            <div>
+              <p class="eyebrow">Tier 2 model</p>
+              <h3 id="mlModelTitle">How the ML model is used</h3>
+            </div>
+            <span class="ml-model-badge">Random Forest</span>
+          </div>
+          <dl class="ml-model-grid">
+            <div>
+              <dt>Model inputs</dt>
+              <dd>10 engineered features: HR/GSR averages, variation, trends, changes from baseline, stress index, and signal quality.</dd>
+            </div>
+            <div>
+              <dt>Model output</dt>
+              <dd>Binary <strong>CALM</strong> or <strong>ANXIETY</strong>. It does not independently classify STRESS or RECOVERY.</dd>
+            </div>
+            <div>
+              <dt>Training design</dt>
+              <dd>100-tree, depth-5 Random Forest trained with an 80/20 development split using the project&apos;s labelled dataset.</dd>
+            </div>
+            <div>
+              <dt>Safety gate</dt>
+              <dd>ML can override only for ANXIETY when <strong>model probability × signal quality ≥ 0.75</strong>; otherwise the rule model remains in control.</dd>
+            </div>
+          </dl>
+          <p class="ml-model-limit"><strong>Validation status:</strong> this local development model has no external clinical validation. Its output is a supporting signal, not medical evidence or a diagnosis.</p>
+        </section>
+
+        <p class="evidence-links">
+          Evidence context:
+          <a href="https://www.ncbi.nlm.nih.gov/books/NBK589926/table/t02/" target="_blank" rel="noopener noreferrer">NCBI: pulse and EDA as autonomic measures</a>
+          <span aria-hidden="true">·</span>
+          <a href="https://pubmed.ncbi.nlm.nih.gov/36893657/" target="_blank" rel="noopener noreferrer">systematic review of wearable stress ML</a>
+        </p>
+        </div>
+      </aside>
 
       <!-- ── Device Instructions ───────────────────────────────────────────── -->
       <details class="instructions" id="deviceInstructions">

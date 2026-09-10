@@ -427,7 +427,11 @@ The frontend is a static dashboard served directly by Flask from the `frontend/`
 - Current GSR
 - Final state
 - Rule state / ML state / fusion source text
-- Connection state
+- Connection state bar
+- Calibration banner (dynamic 30-second baseline indication bar)
+- Method & Evidence slide-out drawer ("⌁ Method & evidence" toggle)
+- State interpretation table & baseline rationale
+- Tier 2 ML Model transparency card
 - Sensor warning banner
 - Baseline summary
 - Window sample count and calibration flag
@@ -439,6 +443,20 @@ The frontend is a static dashboard served directly by Flask from the `frontend/`
 - The chart is powered by Chart.js from a CDN
 - HR is charted directly
 - GSR is charted as `GSR / 4` to keep both traces visible on one chart
+- **Calibration Banner (`#calibrationBanner`)**: Provides immediate visual indication during the initial baseline calibration phase (default ~30 seconds):
+  - **Waiting**: Displayed when disconnected or waiting for sensor contact.
+  - **Preparing**: Displayed when device is connected but valid HR/GSR data has not arrived yet.
+  - **Calibrating**: Active during the first 30 seconds of stable data collection, instructing the user to stay calm and still while baseline HR and GSR are measured (state predictions are deferred).
+  - **Prediction Active**: Replaced once baseline calibration completes (`calibrated === true`), indicating live predictions are running.
+- **Method & Evidence Drawer (`#interpretationDrawer`)**: A slide-out transparent decision guide accessed via the "Method & evidence" button:
+  - **State Decision Table**: Detailed breakdown showing decision rules, empirical rationale, and safeguards for each state:
+    - *Calibrating*: ~30s within-person comparison setup; safeguards against premature predictions.
+    - *Calm*: No persistent elevation from baseline; requires sustained readings.
+    - *Stress*: Triggered by `HR > baseline + 6 bpm` or `GSR > baseline + 40`; requires smoothed, sustained input.
+    - *Anxiety*: Triggered by `HR > baseline + 12 bpm` AND `GSR > baseline + 80` (or high-confidence ML override); protected by dual-signal & confidence checks.
+    - *Recovery*: Triggered by falling HR trend post-anxiety; must hold for 5 seconds.
+  - **Trust & Rationale**: 4-step pipeline overview (Personal baseline -> Cleaner readings -> Two-signal check -> Confirmation gate).
+  - **ML Model Transparency Card**: Details the Random Forest model architecture (100 trees, depth 5), 10 input features, binary output (`CALM`/`ANXIETY`), and safety override gate (`confidence >= 0.75`).
 - The UI still contains an `ACTIVE` visual class, but the final FSM state normally emits `CALM`, `STRESS`, `ANXIETY`, or `RECOVERY`
 - If the stream fails, the UI shows a connection warning and retries after `3s`
 

@@ -38,6 +38,7 @@ def main() -> None:
     port = int(os.environ.get("ANXIETY_PORT", "5000"))
     log.info("Dashboard: http://%s:%s/", host, port)
     log.info("COM port (set ANXIETY_COM_PORT): %s", cfg.serial.port)
+    
     try:
         app.run(host=host, port=port, threaded=True, use_reloader=False)
     finally:
