@@ -35,32 +35,162 @@
         <span class="calibration-status" id="calibrationStatus">Waiting</span>
       </section>
 
+      <!-- ── Feature 1: Predictive Early-Warning Banner ───────────────────── -->
+      <section class="prediction-banner" id="predictionBanner" role="status" aria-live="polite" style="display:none">
+        <span class="pred-icon" aria-hidden="true">⚡</span>
+        <div class="pred-copy">
+          <p class="pred-title" id="predictionTitle">Trending toward STRESS</p>
+          <p class="pred-detail" id="predictionDetail">Linear trend projection based on rising stress indicators.</p>
+        </div>
+        <span class="pred-countdown" id="predictionCountdown">~15s</span>
+      </section>
+
+      <!-- ── Feature 2: Non-intrusive Breathing Prompt ─────────────────────── -->
+      <section class="breathing-prompt" id="breathingPrompt" style="display:none">
+        <div class="bp-content">
+          <span class="bp-icon">🌿</span>
+          <div>
+            <strong>Elevated readings detected</strong>
+            <p>Would you like to try a guided box breathing exercise to support recovery?</p>
+          </div>
+        </div>
+        <div class="bp-actions">
+          <button type="button" class="btn btn-primary" id="bpStartBtn">Start breathing</button>
+          <button type="button" class="btn btn-ghost" id="bpDismissBtn">Dismiss</button>
+        </div>
+      </section>
+
       <div class="sensor-warning" id="sensorWarning" style="display:none">
         <span class="sw-icon">✋</span>
         <span id="sensorWarningText">Place finger on sensor</span>
       </div>
 
+      <div class="actions-bar">
+        <button type="button" class="btn btn-outline" id="manualBreatheBtn">
+          <span aria-hidden="true">🫁</span>
+          Breathing exercise
+        </button>
+      </div>
+
       <section class="cards">
+        <div class="card state-card" id="stateCard">
+          <h2>Current physiological state</h2>
+          <p class="state" id="stateVal">CALM</p>
+          <p class="meta" id="metaVal">Rules · ML</p>
+        </div>
         <div class="card">
           <h2>Heart rate</h2>
           <p class="value" id="hrVal">—</p>
           <p class="unit">bpm</p>
         </div>
         <div class="card">
-          <h2>GSR</h2>
+          <h2>GSR (EDA)</h2>
           <p class="value" id="gsrVal">—</p>
-          <p class="unit">raw</p>
+          <p class="unit">raw units</p>
         </div>
-        <div class="card state-card" id="stateCard">
-          <h2>State</h2>
-          <p class="state" id="stateVal">CALM</p>
-          <p class="meta" id="metaVal">Rules · ML</p>
+      </section>
+
+      <!-- ── Feature 2: Recovery Summary Card (shows after exercise) ──────── -->
+      <section class="recovery-card" id="recoveryCard" style="display:none">
+        <div class="rc-header">
+          <div>
+            <p class="eyebrow">Exercise result</p>
+            <h3>Breathing exercise &amp; recovery summary</h3>
+          </div>
+          <button type="button" class="guide-close" id="rcCloseBtn" aria-label="Close summary">&times;</button>
+        </div>
+        <p class="rc-intro">Here's what your readings did during and after the exercise:</p>
+        <div class="rc-grid">
+          <div class="rc-stat">
+            <span class="rc-stat-label">Heart rate change</span>
+            <span class="rc-stat-val" id="rcHrChange">—</span>
+            <span class="rc-stat-desc" id="rcHrDetail">Start vs. recovery end</span>
+          </div>
+          <div class="rc-stat">
+            <span class="rc-stat-label">State transition</span>
+            <span class="rc-stat-val" id="rcStateChange">—</span>
+            <span class="rc-stat-desc" id="rcStateDetail">Initial state → End of recovery</span>
+          </div>
+          <div class="rc-stat">
+            <span class="rc-stat-label">Total tracked window</span>
+            <span class="rc-stat-val" id="rcDurationVal">—</span>
+            <span class="rc-stat-desc">Exercise duration + 60s recovery</span>
+          </div>
+        </div>
+        <div class="rc-chart-wrap">
+          <canvas id="recoveryChart" height="90"></canvas>
         </div>
       </section>
 
       <section class="chart-wrap">
         <canvas id="liveChart" height="120"></canvas>
       </section>
+
+      <!-- ── Feature 2: Breathing Exercise Modal ───────────────────────────── -->
+      <div class="breathing-modal-backdrop" id="breathingBackdrop" hidden></div>
+      <div class="breathing-modal" id="breathingModal" role="dialog" aria-modal="true" aria-labelledby="breatheModalTitle" hidden>
+        <div class="bm-header">
+          <div>
+            <p class="eyebrow">Autonomic regulation</p>
+            <h2 id="breatheModalTitle">Box breathing guide</h2>
+          </div>
+          <button type="button" class="guide-close" id="breatheCloseBtn" aria-label="Close breathing modal">&times;</button>
+        </div>
+
+        <div class="bm-body">
+          <div class="bm-config" id="breatheConfigSection">
+            <p class="bm-lead">A balanced 4-4-4-4 rhythm: inhale 4s, hold 4s, exhale 4s, hold 4s. Select your session duration:</p>
+            <div class="bm-durations" role="radiogroup" aria-label="Exercise duration">
+              <button type="button" class="btn btn-duration is-active" data-duration="60">1 min</button>
+              <button type="button" class="btn btn-duration" data-duration="120">2 min</button>
+              <button type="button" class="btn btn-duration" data-duration="180">3 min</button>
+            </div>
+            <button type="button" class="btn btn-primary btn-start-exercise" id="breatheStartRunBtn">Begin exercise</button>
+          </div>
+
+          <div class="bm-running" id="breatheRunningSection" style="display:none">
+            <div class="breathing-visual-wrap">
+              <div class="breathing-circle-outer"></div>
+              <div class="breathing-circle" id="breatheCircle">
+                <span class="breathe-instruction" id="breatheInstruction">Get ready</span>
+                <span class="breathe-step-timer" id="breatheStepTimer">4</span>
+              </div>
+            </div>
+
+            <div class="bm-telemetry">
+              <div class="bm-telemetry-item">
+                <span>Phase</span>
+                <strong id="breathePhaseLabel">Inhale</strong>
+              </div>
+              <div class="bm-telemetry-item">
+                <span>Cycles completed</span>
+                <strong id="breatheCycleCount">0</strong>
+              </div>
+              <div class="bm-telemetry-item">
+                <span>Time remaining</span>
+                <strong id="breatheTimeRemain">01:00</strong>
+              </div>
+              <div class="bm-telemetry-item">
+                <span>Current HR</span>
+                <strong id="breatheLiveHr">—</strong>
+              </div>
+            </div>
+
+            <div class="bm-actions">
+              <button type="button" class="btn btn-danger" id="breatheStopBtn">Stop exercise</button>
+            </div>
+          </div>
+
+          <div class="bm-recovering" id="breatheRecoverySection" style="display:none">
+            <div class="rc-spinner-wrap">
+              <div class="rc-spinner"></div>
+              <h3>Exercise complete · Buffering recovery</h3>
+              <p>Tracking your physiological recovery for 60 seconds. Sit comfortably and breathe naturally.</p>
+              <p class="rc-countdown-label">Recovery window: <strong id="recoveryRemainCountdown">60s</strong> remaining</p>
+            </div>
+          </div>
+        </div>
+      </div>
 
       <div class="guide-backdrop" id="guideBackdrop" hidden></div>
       <aside class="guide-drawer" id="interpretationDrawer" role="dialog" aria-modal="true" aria-labelledby="interpretationTitle" hidden>
@@ -108,6 +238,7 @@
             <li><span>2</span><div><strong>Cleaner readings</strong><small>Out-of-range values are rejected and readings are smoothed.</small></div></li>
             <li><span>3</span><div><strong>Two-signal check</strong><small>HR and GSR changes are compared with that baseline.</small></div></li>
             <li><span>4</span><div><strong>Confirmation gate</strong><small>Quality, sustained change, and ML confidence help prevent quick false alerts.</small></div></li>
+            <li><span>5</span><div><strong>Early trend warning</strong><small>Linear projection of current trend slopes capped at 30s, shown only above confidence floor.</small></div></li>
           </ol>
         </section>
 

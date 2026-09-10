@@ -48,6 +48,7 @@ Sensor or mock generator
     -> StateMachine
     -> PatternDetector
     -> AlertSystem
+    -> TrendPredictor (early-warning forecast)
     -> AnxietyStateService snapshot
     -> Flask API (/data, /stream)
     -> Frontend dashboard
@@ -315,7 +316,22 @@ Alert rules:
 - `LOW`: `GRADUAL_STRESS_BUILD` or `SLOW_RECOVERY`
 - `NONE`: everything else
 
-### 13. Snapshot, logging, and serving
+### 13. Predictive early-warning (trend forecast)
+
+`backend/trend_predictor.py` runs after the FSM and alert system. It projects short-horizon physiological trends using the current feature window (`hr_trend`, `gsr_trend`, `stress_index`) and rule thresholds.
+
+Behavior:
+
+- Only active after calibration (`calibrated === true`) and when feature confidence meets `ANXIETY_PREDICT_MIN_CONFIDENCE` (default `0.5`).
+- From `CALM`, forecasts escalation toward `STRESS`; from `STRESS`/`RECOVERY`, forecasts toward `ANXIETY`.
+- Uses the **final FSM state** for both the displayed target (`CALM` → forecast `STRESS`, etc.) and for knowing when a forecast has landed.
+- Uses the **pre-FSM smoothed label** only to suppress the banner when ML/fusion is already at `ANXIETY` (the breathing prompt handles that case instead).
+- Keeps warnings visible while the FSM is still holding, even if `stress_index` has already crossed a rule threshold.
+- Clears on trend reversal (two consecutive falling HR-trend samples) or when the horizon exceeds `ANXIETY_PREDICT_MAX_HORIZON_S` (default `30s`).
+
+The UI reads the `prediction` object from `/stream` and renders the amber `#predictionBanner`.
+
+### 14. Snapshot, logging, and serving
 
 `backend/state_service.py` coordinates the entire pipeline and stores the latest application snapshot behind a thread lock.
 
@@ -369,6 +385,7 @@ project-code/
 |   +-- prediction_smoother.py
 |   +-- rules.py
 |   +-- state_machine.py
+|   +-- trend_predictor.py
 |   `-- state_service.py
 +-- data/
 |   `-- logs/
@@ -406,6 +423,7 @@ project-code/
 | `backend/state_machine.py` | Final transition-constrained state machine |
 | `backend/pattern_detector.py` | Temporal pattern analysis across feature history |
 | `backend/alert_system.py` | Alert-level generation based on state and pattern |
+| `backend/trend_predictor.py` | Short-horizon trend forecast for early-warning UI banner |
 | `backend/state_service.py` | Main orchestrator, logging layer, and JSON snapshot provider |
 | `backend/flask_app.py` | Web routes, CORS, SSE, and static frontend serving |
 
@@ -433,6 +451,11 @@ The frontend is a static dashboard served directly by Flask from the `frontend/`
 - State interpretation table & baseline rationale
 - Tier 2 ML Model transparency card
 - Sensor warning banner
+- Predictive early-warning banner (`#predictionBanner`)
+- Non-intrusive breathing exercise prompt (`#breathingPrompt`)
+- Breathing exercise launcher button (`#manualBreatheBtn`)
+- Guided box-breathing modal (`#breathingModal`)
+- Post-exercise recovery tracking summary card with sparkline chart (`#recoveryCard`)
 - Baseline summary
 - Window sample count and calibration flag
 - Live chart with the latest 60 points
@@ -442,12 +465,19 @@ The frontend is a static dashboard served directly by Flask from the `frontend/`
 - The frontend subscribes to `/stream` using Server-Sent Events (SSE)
 - The chart is powered by Chart.js from a CDN
 - HR is charted directly
-- GSR is charted as `GSR / 4` to keep both traces visible on one chart
+- GSR is charted as `GSR ÷ 4` to keep both traces visible on one chart
 - **Calibration Banner (`#calibrationBanner`)**: Provides immediate visual indication during the initial baseline calibration phase (default ~30 seconds):
   - **Waiting**: Displayed when disconnected or waiting for sensor contact.
   - **Preparing**: Displayed when device is connected but valid HR/GSR data has not arrived yet.
   - **Calibrating**: Active during the first 30 seconds of stable data collection, instructing the user to stay calm and still while baseline HR and GSR are measured (state predictions are deferred).
   - **Prediction Active**: Replaced once baseline calibration completes (`calibrated === true`), indicating live predictions are running.
+- **Predictive Early-Warning Banner (`#predictionBanner`)**: When post-calibration trend forecasting detects rising HR and GSR slopes heading toward the next threshold within 30 seconds, an amber warning pill displays `"Trending toward <STATE> in ~Xs"`. Re-rendered directly each second from server snapshot data without timer drift, and clears upon trend reversal or once the FSM reaches the predicted state. Uses the same feature pipeline as rules/ML (not a separate data path).
+- **Guided Breathing & Closed-Loop Recovery (`#breathingModal`, `#recoveryCard`)**:
+  - Non-intrusive prompt triggered when the final FSM state is `ANXIETY`, when `alert === "HIGH"`, when confident ML output was **adopted by fusion** (`fused_state === "ANXIETY"` and `fusion_source` is `ml` or `both` — both required), or manually via "Breathing exercise" button. If `ml_state` shows `ANXIETY` but `fusion_source` is still `rules`, only the rule/FSM path applies.
+  - Guided box-breathing (4s Inhale, 4s Hold, 4s Exhale, 4s Hold) with selectable duration (1, 2, or 3 minutes).
+  - Live client-side buffering of HR, GSR, and state during exercise + 60s post-exercise recovery window over the single SSE stream.
+  - Post-recovery summary card reporting initial vs. recovery HR delta, state progression (e.g. `ANXIETY → RECOVERY`), and an inline Chart.js trend graph.
+  - Exercise marker events (`start`, `stop`) optionally logged via `POST /session/exercise` to `physio_log.csv`.
 - **Method & Evidence Drawer (`#interpretationDrawer`)**: A slide-out transparent decision guide accessed via the "Method & evidence" button:
   - **State Decision Table**: Detailed breakdown showing decision rules, empirical rationale, and safeguards for each state:
     - *Calibrating*: ~30s within-person comparison setup; safeguards against premature predictions.
@@ -455,18 +485,37 @@ The frontend is a static dashboard served directly by Flask from the `frontend/`
     - *Stress*: Triggered by `HR > baseline + 6 bpm` or `GSR > baseline + 40`; requires smoothed, sustained input.
     - *Anxiety*: Triggered by `HR > baseline + 12 bpm` AND `GSR > baseline + 80` (or high-confidence ML override); protected by dual-signal & confidence checks.
     - *Recovery*: Triggered by falling HR trend post-anxiety; must hold for 5 seconds.
-  - **Trust & Rationale**: 4-step pipeline overview (Personal baseline -> Cleaner readings -> Two-signal check -> Confirmation gate).
+  - **Trust & Rationale**: 5-step pipeline overview (Personal baseline -> Cleaner readings -> Two-signal check -> Confirmation gate -> Early trend warning).
   - **ML Model Transparency Card**: Details the Random Forest model architecture (100 trees, depth 5), 10 input features, binary output (`CALM`/`ANXIETY`), and safety override gate (`confidence >= 0.75`).
 - The UI still contains an `ACTIVE` visual class, but the final FSM state normally emits `CALM`, `STRESS`, `ANXIETY`, or `RECOVERY`
 - If the stream fails, the UI shows a connection warning and retries after `3s`
 
+### How ML, rules, and new features interact
+
+All runtime modes (hardware serial and mock) share the **same** backend pipeline in `state_service.py`. The reader mode only changes where samples originate (`bt_reader.py`).
+
+| UI feature | Primary JSON fields | ML-aware? |
+| --- | --- | --- |
+| State card | `state` (final FSM) | Yes — FSM input comes from fusion, which can ML-override to `ANXIETY` |
+| Meta line | `rule_state`, `ml_state`, `fusion_source` | Displays all three explicitly |
+| Early-warning banner | `prediction` | Yes — uses pre-FSM smoothed state, which only reflects ML when fusion adopted it (same confidence gate). Low-confidence ML never suppresses the banner early. |
+| Breathing prompt | `state`, `alert`, `fused_state`, `fusion_source` | Yes — ML triggers breathing **only** when fusion adopted it (`fused_state === "ANXIETY"` **and** `fusion_source` is `ml` or `both`). Raw `ml_state` with `fusion_source: "rules"` is ignored. |
+| Recovery summary | `state`, `hr`, `gsr` during exercise | Uses final FSM `state` timeline over SSE |
+| Alerts (internal) | `alert` | Derived from final FSM state + patterns; `HIGH` also triggers breathing |
+
+ML fusion rules (`fusion.py`):
+
+- ML only overrides when it predicts `ANXIETY` with effective confidence ≥ `ANXIETY_ML_CONFIDENCE` (default `0.75`).
+- ML `CALM` never overrides rule-level `STRESS`/`ACTIVE`.
+- When ML is unavailable, everything falls back to rules-only — prediction and breathing still work.
+
 ### Data returned by the backend but not currently rendered in the dashboard
 
-- `features`
-- `pattern`
-- `alert`
+- `features` (full feature vector object)
+- `pattern` (temporal pattern label)
+- `fused_state` (pre-FSM fused label — shown indirectly via meta line and used internally)
 
-Those fields are already available through the JSON API, so the UI can be expanded later without changing the backend contract.
+Note: `alert` and `prediction` **are** used by the frontend (breathing prompt and early-warning banner). They are also available via `/data` for programmatic access.
 
 ## API contract
 
@@ -482,6 +531,11 @@ Returns the latest snapshot as JSON and disables caching via headers.
 
 Returns an SSE stream. The server emits one JSON payload per second.
 
+### `POST /session/exercise`
+
+Records breathing exercise events (`start` or `stop`) as marker rows in `physio_log.csv` without mutating existing telemetry structures.
+Body: `{"event": "start"|"stop", "timestamp": <unix_ts>}`.
+
 ### Snapshot schema
 
 Top-level fields returned by `AnxietyStateService.to_json_dict()`:
@@ -494,6 +548,7 @@ Top-level fields returned by `AnxietyStateService.to_json_dict()`:
 | `state` | string | Final FSM state |
 | `rule_state` | string | Rule engine result |
 | `ml_state` | string or null | ML model output |
+| `fused_state` | string | Pre-FSM fused label (after rule/ML fusion, before hold timers) |
 | `fusion_source` | string | Whether rules, ML, or both determined the fused result |
 | `connection` | string | Reader connection state |
 | `connection_detail` | string or null | Extra detail such as COM port or disconnect text |
@@ -505,6 +560,7 @@ Top-level fields returned by `AnxietyStateService.to_json_dict()`:
 | `calibrated` | boolean | Whether baseline calibration has completed |
 | `pattern` | string or null | Temporal pattern label |
 | `alert` | string or null | Alert level |
+| `prediction` | object | Early-warning prediction object with `active`, `predicted_state`, `seconds_to_transition`, `basis` |
 
 ### Example JSON payload
 
@@ -516,6 +572,7 @@ Top-level fields returned by `AnxietyStateService.to_json_dict()`:
   "state": "STRESS",
   "rule_state": "STRESS",
   "ml_state": "ANXIETY",
+  "fused_state": "STRESS",
   "fusion_source": "rules",
   "connection": "connected",
   "connection_detail": "COM6",
@@ -537,7 +594,13 @@ Top-level fields returned by `AnxietyStateService.to_json_dict()`:
   "window_samples": 28,
   "calibrated": true,
   "pattern": "GRADUAL_STRESS_BUILD",
-  "alert": "LOW"
+  "alert": "LOW",
+  "prediction": {
+    "active": true,
+    "predicted_state": "STRESS",
+    "seconds_to_transition": 14.2,
+    "basis": "rising stress_index trend"
+  }
 }
 ```
 
@@ -695,6 +758,13 @@ All core configuration is centralized in `backend/config.py`.
 | `ANXIETY_CSV_LOG_INTERVAL` | `1.0` | CSV logging interval in seconds |
 | `ANXIETY_LOG_LEVEL` | `INFO` | Logging verbosity |
 
+### Predictive early-warning settings
+
+| Environment variable | Default | Meaning |
+| --- | --- | --- |
+| `ANXIETY_PREDICT_MIN_CONFIDENCE` | `0.5` | Minimum feature confidence to emit trend forecasts |
+| `ANXIETY_PREDICT_MAX_HORIZON_S` | `30.0` | Maximum forecast horizon in seconds (extrapolation cap) |
+
 ### Server settings
 
 | Environment variable | Default | Meaning |
@@ -740,13 +810,19 @@ $env:ANXIETY_USE_MOCK_SERIAL="1"
 python app.py
 ```
 
-Mock mode generates a repeating cycle with:
+Mock mode uses the **same pipeline as hardware**. `BluetoothReader` emits synthetic lines at 1 Hz through the identical parse → pipeline → classify path.
 
-- calm period
-- stress build
-- anxiety peak
-- recovery period
-- random noise and occasional spikes
+Mock sequence:
+
+1. **Calibration warmup** (default 30 s): calm, low-noise HR/GSR so baseline calibration can finish reliably (matches `ANXIETY_BASELINE_CALIBRATION_S`).
+2. **Repeating 30 s cycle** after calibration:
+   - calm period (~10 s)
+   - stress build (~5 s)
+   - anxiety peak (~5 s)
+   - recovery (~10 s)
+   - random noise and occasional spikes
+
+Expect the early-warning banner ~10–15 s after the post-calibration stress ramp begins (roughly 40–45 s from session start). Hardware timing depends on real physiology instead of the scripted cycle.
 
 ### Retraining the model
 

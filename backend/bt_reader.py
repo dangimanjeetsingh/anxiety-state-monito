@@ -44,10 +44,13 @@ class BluetoothReader:
         config: SerialConfig,
         on_sample: Callable[[Sample], None],
         on_status: Optional[Callable[[str, Optional[str]], None]] = None,
+        *,
+        mock_calibration_seconds: float = 30.0,
     ) -> None:
         self._cfg = config
         self._on_sample = on_sample
         self._on_status = on_status or (lambda *_: None)
+        self._mock_calibration_seconds = max(0.0, mock_calibration_seconds)
         self._stop = threading.Event()
         self._thread: Optional[threading.Thread] = None
         self._ser: Optional[object] = None
@@ -165,42 +168,40 @@ class BluetoothReader:
         
         while not self._stop.is_set():
             elapsed = time.time() - t0
-            
-            # 30-second cycle for pattern generation
-            cycle_phase = elapsed % 30.0
-            
-            # Baseline parameters
-            hr = 70.0
-            # Slow drift for GSR base (~400-600)
-            gsr = 500.0 + math.sin(elapsed * 0.1) * 75.0
-            
-            # State machine sequence
-            if cycle_phase < 10.0:
-                # CALM
-                pass
-            elif cycle_phase < 15.0:
-                # STRESS: Gradual increase
-                progress = (cycle_phase - 10.0) / 5.0
-                hr += progress * 25.0
-                gsr += progress * 100.0
-            elif cycle_phase < 20.0:
-                # ANXIETY: Peak
-                hr += 35.0
-                gsr += 150.0
+
+            # Hold calm, low-noise readings during baseline calibration so mock
+            # mode matches the documented ~30s calibration window.
+            if elapsed < self._mock_calibration_seconds:
+                hr = 70.0 + random.uniform(-3.0, 3.0)
+                gsr = 500.0 + random.uniform(-10.0, 10.0)
             else:
-                # RECOVERY: Decay back to normal
-                progress = (cycle_phase - 20.0) / 10.0
-                hr += 35.0 * (1.0 - progress)
-                gsr += 150.0 * (1.0 - progress)
-                
-            # Add continuous random noise (±10 HR, ±20 GSR)
-            hr += random.uniform(-10.0, 10.0)
-            gsr += random.uniform(-20.0, 20.0)
-            
-            # Occasional random standalone spikes
-            if random.random() < 0.05:
-                hr += random.uniform(10.0, 20.0)
-                gsr += random.uniform(50.0, 100.0)
+                # 30-second cycle for pattern generation after calibration
+                cycle_elapsed = elapsed - self._mock_calibration_seconds
+                cycle_phase = cycle_elapsed % 30.0
+
+                hr = 70.0
+                gsr = 500.0 + math.sin(cycle_elapsed * 0.1) * 75.0
+
+                if cycle_phase < 10.0:
+                    pass
+                elif cycle_phase < 15.0:
+                    progress = (cycle_phase - 10.0) / 5.0
+                    hr += progress * 25.0
+                    gsr += progress * 100.0
+                elif cycle_phase < 20.0:
+                    hr += 35.0
+                    gsr += 150.0
+                else:
+                    progress = (cycle_phase - 20.0) / 10.0
+                    hr += 35.0 * (1.0 - progress)
+                    gsr += 150.0 * (1.0 - progress)
+
+                hr += random.uniform(-10.0, 10.0)
+                gsr += random.uniform(-20.0, 20.0)
+
+                if random.random() < 0.05:
+                    hr += random.uniform(10.0, 20.0)
+                    gsr += random.uniform(50.0, 100.0)
                 
             line = f"GSR:{int(gsr)},HR:{int(hr)}"
             self._on_sample(Sample(gsr=gsr, hr=hr, raw_line=line))

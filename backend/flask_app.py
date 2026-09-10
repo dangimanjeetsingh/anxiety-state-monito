@@ -5,7 +5,7 @@ import json
 import time
 from typing import TYPE_CHECKING
 
-from flask import Flask, Response, jsonify, send_from_directory
+from flask import Flask, Response, jsonify, request, send_from_directory
 from flask_cors import CORS
 
 from backend.paths import project_root
@@ -31,6 +31,13 @@ def create_app(service: "AnxietyStateService") -> Flask:
         resp.headers["Pragma"] = "no-cache"
         resp.headers["Expires"] = "0"
         return resp
+
+    @app.route("/session/exercise", methods=["POST"])
+    def session_exercise():
+        payload = request.get_json(silent=True) or {}
+        event = payload.get("event", "unknown")
+        service.log_exercise_event(str(event))
+        return jsonify({"status": "ok", "event": event})
 
     @app.route("/stream")
     def stream():

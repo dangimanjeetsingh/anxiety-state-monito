@@ -23,6 +23,7 @@ from backend.pipeline import DataPipeline
 from backend.prediction_smoother import PredictionSmoother
 from backend.rules import RulesEngine
 from backend.state_machine import StateMachine
+from backend.trend_predictor import TrendPrediction, TrendPredictor
 
 LOG = logging.getLogger(__name__)
 
@@ -34,6 +35,7 @@ class DashboardSnapshot:
     state: str
     rule_state: str
     ml_state: Optional[str]
+    fused_state: str
     fusion_source: str
     connection: str
     connection_detail: Optional[str]
@@ -45,6 +47,7 @@ class DashboardSnapshot:
     calibrated: bool
     pattern: Optional[str]
     alert: Optional[str]
+    prediction: Optional[Dict[str, Any]] = None
 
 
 class AnxietyStateService:
@@ -69,6 +72,7 @@ class AnxietyStateService:
         self.fsm = StateMachine()
         self.pattern_detector = PatternDetector()
         self.alert_system = AlertSystem()
+        self.trend_predictor = TrendPredictor(config)
         self._prev_rule_state: Optional[str] = None
         self._latest_hr: Optional[float] = None
         self._latest_gsr: Optional[float] = None
@@ -78,6 +82,7 @@ class AnxietyStateService:
             state="CALM",
             rule_state="CALM",
             ml_state=None,
+            fused_state="CALM",
             fusion_source="rules",
             connection="starting",
             connection_detail=None,
@@ -89,6 +94,7 @@ class AnxietyStateService:
             calibrated=False,
             pattern=None,
             alert=None,
+            prediction={"active": False},
         )
         self._csv_file: Any = None
         self._csv_writer: Any = None
@@ -104,6 +110,7 @@ class AnxietyStateService:
             self._cfg.serial,
             on_sample=self._on_sample,
             on_status=self._on_status,
+            mock_calibration_seconds=self._cfg.baseline.calibration_seconds,
         )
         self._reader.start()
         LOG.info("Bluetooth reader thread started (mock=%s)", self._cfg.serial.use_mock)
@@ -128,12 +135,33 @@ class AnxietyStateService:
             "fused_state",
             "final_state",
             "connection",
+            "exercise_event",
         ]
         self._csv_writer = csv.DictWriter(self._csv_file, fieldnames=fields)
         if new_file:
             self._csv_writer.writeheader()
             self._csv_file.flush()
         LOG.info("CSV log: %s", self._csv_path)
+
+    def log_exercise_event(self, event: str) -> None:
+        with self._lock:
+            if self._csv_writer is None:
+                return
+            self._csv_writer.writerow(
+                {
+                    "timestamp_iso": datetime.utcnow().isoformat() + "Z",
+                    "hr": self._snapshot.hr if self._snapshot.hr is not None else "",
+                    "gsr": self._snapshot.gsr if self._snapshot.gsr is not None else "",
+                    "raw_line": f"EXERCISE_{event.upper()}",
+                    "rule_state": self._snapshot.rule_state or "",
+                    "ml_state": self._snapshot.ml_state or "",
+                    "fused_state": self._snapshot.fused_state or "",
+                    "final_state": self._snapshot.state or "",
+                    "connection": self._snapshot.connection,
+                    "exercise_event": event,
+                }
+            )
+            self._csv_file.flush()
 
     def _close_csv(self) -> None:
         if self._csv_file:
@@ -174,7 +202,6 @@ class AnxietyStateService:
                 self._maybe_log_csv(sample, None, None, None, None, None, None, None)
                 return
             hr, gsr = out
-            print(f"HR: {hr}, GSR: {gsr}")
             now = time.time()
             self.baseline.update_with_sample(now, hr, gsr)
             self._latest_hr = hr
@@ -215,6 +242,12 @@ class AnxietyStateService:
                     confidence=fv.confidence,
                     now_t=now,
                 )
+                prediction_res = self.trend_predictor.update(
+                    fv=fv,
+                    current_state=final_state,
+                    calibrated=self.baseline.is_ready(),
+                    input_state=smoothed_state,
+                )
             except Exception as e:
                 LOG.error("Evaluation pipeline crashed: %s", e)
                 # Fallback to pure rules engine if fsm/ml corrupt
@@ -224,6 +257,7 @@ class AnxietyStateService:
                 final_state = rule_state
                 pattern_type = None
                 alert_level = None
+                prediction_res = TrendPrediction(active=False)
             feat_map = {
                 "mean_hr": fv.mean_hr,
                 "std_hr": fv.std_hr,
@@ -242,6 +276,7 @@ class AnxietyStateService:
                 state=final_state,
                 rule_state=rule_state,
                 ml_state=ml_state,
+                fused_state=fused.state if fused else rule_state,
                 fusion_source=fused.source if fused else "rules",
                 connection=self._snapshot.connection,
                 connection_detail=self._snapshot.connection_detail,
@@ -253,6 +288,7 @@ class AnxietyStateService:
                 calibrated=self.baseline.is_ready(),
                 pattern=pattern_type,
                 alert=alert_level,
+                prediction=prediction_res.to_dict(),
             )
             self._maybe_log_csv(
                 sample,
@@ -293,6 +329,7 @@ class AnxietyStateService:
                 "fused_state": fused or "",
                 "final_state": final_state or "",
                 "connection": connection,
+                "exercise_event": "",
             }
         )
         self._csv_file.flush()
@@ -310,6 +347,7 @@ class AnxietyStateService:
             "state": s.state,
             "rule_state": s.rule_state,
             "ml_state": s.ml_state,
+            "fused_state": s.fused_state,
             "fusion_source": s.fusion_source,
             "connection": s.connection,
             "connection_detail": s.connection_detail,
@@ -321,6 +359,7 @@ class AnxietyStateService:
             "calibrated": s.calibrated,
             "pattern": s.pattern,
             "alert": s.alert,
+            "prediction": s.prediction if s.prediction is not None else {"active": False},
         }
 
     def reset_session(self) -> None:
@@ -331,6 +370,7 @@ class AnxietyStateService:
             self.fsm = StateMachine()
             self.pattern_detector = PatternDetector()
             self.alert_system = AlertSystem()
+            self.trend_predictor.reset()
             self._prev_rule_state = None
             self._latest_hr = None
             self._latest_gsr = None

@@ -110,6 +110,18 @@ class SmoothingConfig:
 
 
 @dataclass
+class PredictConfig:
+    """Predictive early-warning: short-horizon linear projection."""
+
+    min_confidence: float = field(
+        default_factory=lambda: _env_float("ANXIETY_PREDICT_MIN_CONFIDENCE", 0.5)
+    )
+    max_horizon_s: float = field(
+        default_factory=lambda: _env_float("ANXIETY_PREDICT_MAX_HORIZON_S", 30.0)
+    )
+
+
+@dataclass
 class AppConfig:
     serial: SerialConfig = field(default_factory=SerialConfig)
     baseline: BaselineConfig = field(default_factory=BaselineConfig)
@@ -117,6 +129,7 @@ class AppConfig:
     pipeline: PipelineConfig = field(default_factory=PipelineConfig)
     ml: MlConfig = field(default_factory=MlConfig)
     smoothing: SmoothingConfig = field(default_factory=SmoothingConfig)
+    predict: PredictConfig = field(default_factory=PredictConfig)
     csv_log_interval_s: float = field(default_factory=lambda: _env_float("ANXIETY_CSV_LOG_INTERVAL", 1.0))
 
 
