@@ -1119,3 +1119,564 @@ body.drawer-open {
     display: none;
   }
 }
+
+/* ==========================================================================
+   Round 2 Styles: Prediction, Breathing Exercise, Recovery & Visual Upgrade
+   ========================================================================== */
+
+/* Buttons */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 8px 14px;
+  font-family: inherit;
+  font-size: 0.85rem;
+  font-weight: 600;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  user-select: none;
+}
+
+.btn:focus-visible {
+  outline: 2px solid #5c7cfa;
+  outline-offset: 2px;
+}
+
+.btn-primary {
+  background: #5c7cfa;
+  color: #ffffff;
+  border-color: #4c6ef5;
+}
+
+.btn-primary:hover {
+  background: #4c6ef5;
+  transform: translateY(-1px);
+}
+
+.btn-ghost {
+  background: transparent;
+  color: var(--muted);
+  border-color: transparent;
+}
+
+.btn-ghost:hover {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text);
+}
+
+.btn-outline {
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--text);
+  border-color: var(--border);
+}
+
+.btn-outline:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: #5c7cfa;
+  color: #ffffff;
+}
+
+.btn-danger {
+  background: rgba(248, 81, 73, 0.15);
+  color: #f85149;
+  border-color: rgba(248, 81, 73, 0.4);
+}
+
+.btn-danger:hover {
+  background: rgba(248, 81, 73, 0.25);
+  color: #ff7b72;
+}
+
+/* Actions bar */
+.actions-bar {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 12px;
+}
+
+/* ── Feature 1: Early-Warning Prediction Banner ──────────────────────────── */
+.prediction-banner {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  margin: 0 0 14px;
+  padding: 12px 16px;
+  background: rgba(210, 153, 34, 0.14);
+  border: 1px solid rgba(210, 153, 34, 0.55);
+  border-radius: 10px;
+  color: #f0c36a;
+  animation: pred-slide 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes pred-slide {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.pred-icon {
+  font-size: 1.3rem;
+  flex: 0 0 auto;
+  color: #f0c36a;
+  animation: pred-pulse 1.8s ease-in-out infinite;
+}
+
+@keyframes pred-pulse {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50%      { transform: scale(1.15); opacity: 0.8; }
+}
+
+.pred-copy {
+  flex: 1;
+  min-width: 0;
+}
+
+.pred-title {
+  margin: 0;
+  color: var(--text);
+  font-size: 0.94rem;
+  font-weight: 650;
+}
+
+.pred-detail {
+  margin: 2px 0 0;
+  color: #d9c690;
+  font-size: 0.82rem;
+}
+
+.pred-countdown {
+  flex: 0 0 auto;
+  padding: 4px 10px;
+  background: rgba(210, 153, 34, 0.2);
+  border: 1px solid rgba(210, 153, 34, 0.6);
+  border-radius: 999px;
+  color: #f0c36a;
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+/* ── Feature 2: Breathing Prompt ────────────────────────────────────────── */
+.breathing-prompt {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin: 0 0 14px;
+  padding: 14px 18px;
+  background: linear-gradient(135deg, rgba(92, 124, 250, 0.15), rgba(63, 185, 80, 0.1));
+  border: 1px solid rgba(92, 124, 250, 0.4);
+  border-radius: 12px;
+  animation: bp-appear 0.35s ease;
+}
+
+@keyframes bp-appear {
+  from { opacity: 0; transform: translateY(-6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.bp-content {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.bp-icon {
+  font-size: 1.6rem;
+}
+
+.bp-content strong {
+  display: block;
+  font-size: 0.92rem;
+  color: var(--text);
+}
+
+.bp-content p {
+  margin: 2px 0 0;
+  font-size: 0.84rem;
+  color: var(--muted);
+}
+
+.bp-actions {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+/* ── Feature 2: Breathing Exercise Modal ────────────────────────────────── */
+.breathing-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  background: rgba(3, 5, 9, 0.75);
+  backdrop-filter: blur(4px);
+}
+
+.breathing-modal {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 51;
+  width: min(540px, 94vw);
+  max-height: 90vh;
+  overflow-y: auto;
+  background: #151922;
+  border: 1px solid rgba(92, 124, 250, 0.35);
+  border-radius: 16px;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.55);
+}
+
+.bm-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: 18px 22px 14px;
+  border-bottom: 1px solid var(--border);
+}
+
+.bm-header h2 {
+  margin: 0;
+  font-size: 1.25rem;
+  font-weight: 700;
+}
+
+.bm-body {
+  padding: 24px;
+  text-align: center;
+}
+
+.bm-lead {
+  margin: 0 0 20px;
+  color: var(--muted);
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
+.bm-durations {
+  display: flex;
+  justify-content: center;
+  gap: 12px;
+  margin-bottom: 24px;
+}
+
+.btn-duration {
+  padding: 8px 18px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 999px;
+  font-size: 0.85rem;
+}
+
+.btn-duration.is-active {
+  background: rgba(92, 124, 250, 0.2);
+  border-color: #5c7cfa;
+  color: #c3cdff;
+}
+
+.btn-start-exercise {
+  width: 100%;
+  padding: 12px;
+  font-size: 0.95rem;
+}
+
+/* Animated Breathing Circle */
+.breathing-visual-wrap {
+  position: relative;
+  width: 240px;
+  height: 240px;
+  margin: 0 auto 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.breathing-circle-outer {
+  position: absolute;
+  width: 230px;
+  height: 230px;
+  border-radius: 50%;
+  border: 2px dashed rgba(92, 124, 250, 0.3);
+}
+
+.breathing-circle {
+  width: 120px;
+  height: 120px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(92, 124, 250, 0.45) 0%, rgba(63, 185, 80, 0.25) 100%);
+  border: 2px solid #5c7cfa;
+  box-shadow: 0 0 30px rgba(92, 124, 250, 0.35);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  transition: transform 4s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 4s ease;
+}
+
+.breathing-circle.expand {
+  transform: scale(1.8);
+  box-shadow: 0 0 50px rgba(63, 185, 80, 0.5);
+  border-color: #3fb950;
+}
+
+.breathing-circle.hold {
+  transform: scale(1.8);
+  box-shadow: 0 0 50px rgba(210, 153, 34, 0.5);
+  border-color: #d29922;
+}
+
+.breathing-circle.contract {
+  transform: scale(1);
+  box-shadow: 0 0 25px rgba(92, 124, 250, 0.35);
+  border-color: #5c7cfa;
+}
+
+.breathing-circle.hold-empty {
+  transform: scale(1);
+  box-shadow: 0 0 20px rgba(154, 163, 178, 0.3);
+  border-color: #9aa3b2;
+}
+
+.breathe-instruction {
+  font-size: 0.85rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #ffffff;
+}
+
+.breathe-step-timer {
+  font-size: 1.4rem;
+  font-weight: 700;
+  color: #c3cdff;
+}
+
+.bm-telemetry {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+  margin-bottom: 24px;
+  background: rgba(255, 255, 255, 0.02);
+  padding: 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+}
+
+.bm-telemetry-item span {
+  display: block;
+  font-size: 0.72rem;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 4px;
+}
+
+.bm-telemetry-item strong {
+  font-size: 1.05rem;
+  color: var(--text);
+}
+
+.bm-recovering {
+  padding: 20px 10px;
+}
+
+.rc-spinner {
+  width: 48px;
+  height: 48px;
+  margin: 0 auto 16px;
+  border: 3px solid rgba(92, 124, 250, 0.2);
+  border-top-color: #5c7cfa;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.rc-countdown-label {
+  margin-top: 14px;
+  font-size: 1.05rem;
+  color: #aebdff;
+}
+
+/* ── Feature 2: Recovery Result Summary Card ────────────────────────────── */
+.recovery-card {
+  margin-top: 16px;
+  margin-bottom: 16px;
+  padding: 20px;
+  background: linear-gradient(145deg, rgba(28, 35, 48, 0.98), rgba(20, 24, 33, 0.98));
+  border: 1px solid rgba(92, 124, 250, 0.45);
+  border-radius: 14px;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.25);
+  animation: rc-slide 0.4s ease;
+}
+
+@keyframes rc-slide {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.rc-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 8px;
+}
+
+.rc-header h3 {
+  margin: 0;
+  font-size: 1.15rem;
+  font-weight: 700;
+}
+
+.rc-intro {
+  margin: 0 0 16px;
+  color: var(--muted);
+  font-size: 0.86rem;
+}
+
+.rc-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+.rc-stat {
+  padding: 12px 14px;
+  background: rgba(255, 255, 255, 0.025);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.rc-stat-label {
+  display: block;
+  font-size: 0.72rem;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 4px;
+}
+
+.rc-stat-val {
+  display: block;
+  font-size: 1.4rem;
+  font-weight: 700;
+  color: var(--text);
+  margin-bottom: 2px;
+}
+
+.rc-stat-desc {
+  display: block;
+  font-size: 0.76rem;
+  color: var(--muted);
+}
+
+.rc-chart-wrap {
+  height: 110px;
+  background: rgba(0, 0, 0, 0.25);
+  padding: 8px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+/* ── Feature 3: Visual Polish & State Animations ────────────────────────── */
+.state-card {
+  position: relative;
+  overflow: hidden;
+  transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.state-card::before {
+  content: ";
+ position: absolute;
+ top: 0;
+ left: 0;
+ right: 0;
+ height: 4px;
+ background: transparent;
+ transition: background 0.4s ease;
+}
+
+.state-card.state-calm {
+ border-color: rgba(63, 185, 80, 0.6);
+ box-shadow: 0 8px 24px rgba(63, 185, 80, 0.12);
+}
+.state-card.state-calm::before {
+ background: #3fb950;
+}
+.state-card.state-calm .state {
+ color: #7ee787;
+}
+
+.state-card.state-stress {
+ border-color: rgba(210, 153, 34, 0.7);
+ box-shadow: 0 8px 24px rgba(210, 153, 34, 0.16);
+}
+.state-card.state-stress::before {
+ background: #d29922;
+}
+.state-card.state-stress .state {
+ color: #e3b341;
+}
+
+.state-card.state-anxiety {
+ border-color: rgba(248, 81, 73, 0.75);
+ box-shadow: 0 8px 30px rgba(248, 81, 73, 0.22);
+ animation: state-pulse-red 2s infinite ease-in-out;
+}
+.state-card.state-anxiety::before {
+ background: #f85149;
+}
+.state-card.state-anxiety .state {
+ color: #ff7b72;
+}
+
+@keyframes state-pulse-red {
+ 0%, 100% { box-shadow: 0 8px 24px rgba(248, 81, 73, 0.16); }
+ 50% { box-shadow: 0 8px 36px rgba(248, 81, 73, 0.32); }
+}
+
+.state-card.state-recovery {
+ border-color: rgba(88, 166, 255, 0.65);
+ box-shadow: 0 8px 24px rgba(88, 166, 255, 0.15);
+}
+.state-card.state-recovery::before {
+ background: #58a6ff;
+}
+.state-card.state-recovery .state {
+ color: #79c0ff;
+}
+
+.state-card.state-active {
+ border-color: rgba(163, 113, 247, 0.65);
+ box-shadow: 0 8px 24px rgba(163, 113, 247, 0.15);
+}
+.state-card.state-active::before {
+ background: #a371f7;
+}
+.state-card.state-active .state {
+ color: #d2a8ff;
+}
+
+@media (max-width: 680px) {
+ .breathing-prompt {
+ flex-direction: column;
+ align-items: stretch;
+ }
+ .bp-actions {
+ justify-content: flex-end;
+ }
+ .rc-grid {
+ grid-template-columns: 1fr;
+ }
+ .bm-telemetry {
+ grid-template-columns: repeat(2, 1fr);
+ }
+}
