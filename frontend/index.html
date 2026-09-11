@@ -3,47 +3,75 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Anxiety Monitor</title>
+    <title>SAARTHI</title>
     <link rel="stylesheet" href="/css/style.css" />
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@3.0.1/dist/chartjs-plugin-annotation.min.js"></script>
   </head>
   <body>
     <div class="layout">
       <header class="header">
-        <div>
-          <p class="header-kicker">Live wellness monitor</p>
-          <h1>Physiological state</h1>
-          <p class="sub">Live HR / GSR · rule + ML fusion · HC-05</p>
+        <div class="header-title-group">
+          <svg class="header-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M2 13h3.5l1.7 4.2L10.8 6l2.6 11 1.6-4h5.1" />
+          </svg>
+          <div>
+            <h1>SAARTHI</h1>
+            <p class="sub">Real-Time Physiological Stress &amp; Anxiety Monitoring with Early Intervention</p>
+          </div>
         </div>
-        <button class="guide-toggle" id="guideToggle" type="button" aria-controls="interpretationDrawer" aria-expanded="false">
-          <span aria-hidden="true">⌁</span>
-          Method &amp; evidence
-        </button>
+        <div class="header-actions">
+          <button type="button" class="status-pill status-pill--calibrated" id="calibratedPill" aria-expanded="false" aria-controls="calibratedDetail" style="display:none">
+            <span class="status-pill-icon" aria-hidden="true">&#10003;</span>
+            <span class="status-pill-copy">
+              <span class="status-pill-title">Calibrated</span>
+              <span class="status-pill-detail">All systems operational</span>
+            </span>
+          </button>
+          <button class="guide-toggle" id="guideToggle" type="button" aria-controls="interpretationDrawer" aria-expanded="false">
+            Research &amp; Evidence
+            <span class="guide-toggle-chevron" aria-hidden="true">&#8250;</span>
+          </button>
+        </div>
       </header>
+      <p class="calibrated-detail" id="calibratedDetail" hidden></p>
 
-      <section class="status-bar" id="connBar">
-        <span class="dot" id="connDot"></span>
-        <span id="connText">Connecting…</span>
-      </section>
+      <!-- ── Round 5: single compact status row ───────────────────────────────
+           Connection pill + (calibration banner OR prediction strip) now share
+           one flex row instead of three stacked full-width blocks, so the page
+           needs far less vertical space before it gets to the cards/chart. ── -->
+      <div class="status-row">
+        <section class="status-bar" id="connBar">
+          <span class="dot" id="connDot"></span>
+          <span id="connText">Connecting…</span>
+        </section>
 
-      <section class="calibration-banner" id="calibrationBanner" role="status" aria-live="polite">
-        <span class="calibration-icon" aria-hidden="true">&#9203;</span>
-        <div class="calibration-copy">
-          <p class="calibration-title" id="calibrationTitle">Waiting for sensor data</p>
-          <p class="calibration-message" id="calibrationMessage">Connect the device to begin your personal baseline reading.</p>
-        </div>
-        <span class="calibration-status" id="calibrationStatus">Waiting</span>
-      </section>
+        <section class="calibration-banner" id="calibrationBanner" role="status" aria-live="polite">
+          <span class="calibration-icon" aria-hidden="true">&#9203;</span>
+          <div class="calibration-copy">
+            <p class="calibration-title" id="calibrationTitle">Waiting for sensor data</p>
+            <p class="calibration-message" id="calibrationMessage">Connect the device to begin your personal baseline reading.</p>
+          </div>
+          <span class="calibration-status" id="calibrationStatus">Waiting</span>
+        </section>
 
-      <!-- ── Feature 1: Predictive Early-Warning Banner ───────────────────── -->
-      <section class="prediction-banner" id="predictionBanner" role="status" aria-live="polite" style="display:none">
-        <span class="pred-icon" aria-hidden="true">⚡</span>
-        <div class="pred-copy">
-          <p class="pred-title" id="predictionTitle">Trending toward STRESS</p>
-          <p class="pred-detail" id="predictionDetail">Linear trend projection based on rising stress indicators.</p>
-        </div>
-        <span class="pred-countdown" id="predictionCountdown">~15s</span>
-      </section>
+        <!-- ── Phase 4: Compact post-calibration status strip ──────────────────
+             Replaces the calibration banner once calibrated; folds the
+             prediction banner into the same row as a second pill. When no
+             prediction is active, the pill falls back to a neutral message
+             instead of disappearing (see updatePredictionBanner() in app.js). ── -->
+        <section class="status-strip" id="statusStrip" style="display:none">
+          <!-- ── Feature 1: Predictive Early-Warning pill (re-skinned) ────────── -->
+          <div class="prediction-banner" id="predictionBanner" role="status" aria-live="polite">
+            <span class="pred-icon" aria-hidden="true">⚡</span>
+            <div class="pred-copy">
+              <p class="pred-title" id="predictionTitle">Trending toward STRESS</p>
+              <p class="pred-detail" id="predictionDetail">Linear trend projection based on rising stress indicators.</p>
+            </div>
+            <span class="pred-countdown" id="predictionCountdown">~15s</span>
+          </div>
+        </section>
+      </div>
 
       <!-- ── Feature 2: Non-intrusive Breathing Prompt ─────────────────────── -->
       <section class="breathing-prompt" id="breathingPrompt" style="display:none">
@@ -65,28 +93,95 @@
         <span id="sensorWarningText">Place finger on sensor</span>
       </div>
 
-      <div class="actions-bar">
-        <button type="button" class="btn btn-outline" id="manualBreatheBtn">
+      <!-- ── Phase 6: Floating breathing button (replaces the full-width button) ── -->
+      <div class="breathing-fab-wrap">
+        <span class="breathing-fab-label" aria-hidden="true">Your wellbeing matters.</span>
+        <button type="button" class="breathing-fab" id="manualBreatheBtn" aria-label="Breathing exercise">
           <span aria-hidden="true">🫁</span>
-          Breathing exercise
         </button>
       </div>
 
       <section class="cards">
         <div class="card state-card" id="stateCard">
           <h2>Current physiological state</h2>
-          <p class="state" id="stateVal">CALM</p>
+          <p class="state-card-subtitle">Based on real-time physiological signals.</p>
+          <div class="state-card-body">
+            <div class="state-ring" aria-hidden="true">
+              <svg class="state-ring-progress" viewBox="0 0 100 100">
+                <circle class="state-ring-progress-track" cx="50" cy="50" r="46"></circle>
+                <circle class="state-ring-progress-fill" id="stateRingProgressFill" cx="50" cy="50" r="46"></circle>
+              </svg>
+              <svg class="state-ring-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M9.5 4.5c-1.4-1.7-4.4-1.7-5.7 0-1 1.3-.8 2.7-.1 3.6-1.3.7-2.2 2.1-2.2 3.6 0 1.4.8 2.7 1.9 3.4-.3.9-.1 2 .6 2.8 1 1.2 2.7 1.5 4.1.8.4.9 1.3 1.5 2.4 1.5V4.5Z" />
+                <path d="M14.5 4.5c1.4-1.7 4.4-1.7 5.7 0 1 1.3.8 2.7.1 3.6 1.3.7 2.2 2.1 2.2 3.6 0 1.4-.8 2.7-1.9 3.4.3.9.1 2-.6 2.8-1 1.2-2.7 1.5-4.1.8-.4.9-1.3 1.5-2.4 1.5V4.5Z" />
+                <path d="M9.7 8.6c.6.4 1.4.4 2 0" />
+                <path d="M12.3 8.6c.6.4 1.4.4 2 0" />
+                <path d="M8 12.2c.9.5 1.9.5 2.8 0" />
+                <path d="M13.2 12.2c.9.5 1.9.5 2.8 0" />
+              </svg>
+              <p class="state" id="stateVal">CALM</p>
+              <p class="state-ring-caption state-ring-caption--calm">Steady state detected</p>
+              <p class="state-ring-caption state-ring-caption--stress">Elevated arousal detected</p>
+              <p class="state-ring-caption state-ring-caption--anxiety">High arousal detected</p>
+              <p class="state-ring-caption state-ring-caption--recovery">Arousal decreasing</p>
+              <p class="state-ring-caption state-ring-caption--calibrating" id="stateCalibratingPct">Establishing baseline</p>
+            </div>
+            <div class="state-divider" aria-hidden="true"></div>
+            <div class="state-microcopy" aria-hidden="true">
+              <p class="state-microcopy-lines state-microcopy--calm"><span class="state-microcopy-lead">All steady.</span><span>Nothing to do.</span><span>Just notice.</span></p>
+              <p class="state-microcopy-lines state-microcopy--stress"><span class="state-microcopy-lead">Breathe.</span><span>Be aware.</span><span>You've got this.</span></p>
+              <p class="state-microcopy-lines state-microcopy--anxiety"><span class="state-microcopy-lead">You're safe.</span><span>Slow it down.</span><span>One breath at a time.</span></p>
+              <p class="state-microcopy-lines state-microcopy--recovery"><span class="state-microcopy-lead">Good work.</span><span>Keep breathing.</span><span>Almost there.</span></p>
+              <p class="state-microcopy-lines state-microcopy--calibrating"><span class="state-microcopy-lead">Sit still and relax.</span><span>Reading your baseline HR &amp; GSR.</span><span>Prediction starts automatically.</span></p>
+            </div>
+          </div>
           <p class="meta" id="metaVal">Rules · ML</p>
         </div>
-        <div class="card">
-          <h2>Heart rate</h2>
-          <p class="value" id="hrVal">—</p>
-          <p class="unit">bpm</p>
-        </div>
-        <div class="card">
-          <h2>GSR (EDA)</h2>
-          <p class="value" id="gsrVal">—</p>
-          <p class="unit">raw units</p>
+        <div class="side-cards">
+          <div class="card">
+            <h2>
+              <svg class="card-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M12 20.5s-7.5-4.6-10-9.3C.4 8 1.7 4.6 4.8 3.7c2-.6 4 .2 5.2 2 1.2-1.8 3.2-2.6 5.2-2 3.1.9 4.4 4.3 2.8 7.5-2.5 4.7-10 9.3-10 9.3Z" />
+              </svg>
+              Heart rate
+            </h2>
+            <div class="metric-block">
+              <div class="metric-top">
+                <div class="metric-value">
+                  <span class="value" id="hrVal">—</span>
+                  <span class="unit">bpm</span>
+                </div>
+                <span class="metric-trend" id="hrTrend" aria-hidden="true">
+                  <span class="metric-trend-arrow">→</span>
+                  <span class="metric-trend-label">Steady</span>
+                </span>
+              </div>
+              <div class="mini-bar" id="hrMiniBar" aria-hidden="true"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div>
+              <p class="range-note">Normal range · 60–100 bpm</p>
+            </div>
+          </div>
+          <div class="card">
+            <h2>
+              <svg class="card-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M12 2.5s6.5 7.2 6.5 12a6.5 6.5 0 1 1-13 0c0-4.8 6.5-12 6.5-12Z" />
+              </svg>
+              GSR (EDA)
+            </h2>
+            <div class="metric-block">
+              <div class="metric-top">
+                <div class="metric-value">
+                  <span class="value" id="gsrVal">—</span>
+                  <span class="unit">units</span>
+                </div>
+                <span class="metric-trend" id="gsrTrend" aria-hidden="true">
+                  <span class="metric-trend-arrow">→</span>
+                  <span class="metric-trend-label">Steady</span>
+                </span>
+              </div>
+              <div class="mini-bar" id="gsrMiniBar" aria-hidden="true"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div>
+              <p class="range-note">Raw sensor units (0&ndash;1200), not calibrated µS</p>
+            </div>
+          </div>
         </div>
       </section>
 
@@ -123,6 +218,7 @@
       </section>
 
       <section class="chart-wrap">
+        <h2>Physiological signals (real-time)</h2>
         <canvas id="liveChart" height="120"></canvas>
       </section>
 
@@ -202,6 +298,7 @@
           <button class="guide-close" id="guideClose" type="button" aria-label="Close method and evidence panel">&times;</button>
         </div>
         <div class="guide-drawer-body">
+        <p class="drawer-meta">Live HR / GSR · rule + ML fusion · HC-05</p>
         <div class="interpretation-heading">
           <div>
             <h3>How the dashboard estimates a state</h3>
@@ -217,15 +314,28 @@
           <article class="evidence-card evidence-card--supported">
             <span class="evidence-label">Evidence-informed</span>
             <h4>Personalized multi-signal monitoring</h4>
-            <p>HR and EDA/GSR can reflect autonomic arousal; the comparison starts from your own baseline.</p>
-            <a href="https://pmc.ncbi.nlm.nih.gov/articles/PMC11126007/" target="_blank" rel="noopener noreferrer">Read personalized-wearable review <span aria-hidden="true">↗</span></a>
+            <p>HR and EDA/GSR both index sympathetic (autonomic) arousal, and clinical guidance calls for comparing each person against their own baseline rather than a fixed population cutoff. <a class="inline-source" href="https://pmc.ncbi.nlm.nih.gov/articles/PMC11126007/" target="_blank" rel="noopener noreferrer">[1]</a></p>
+            <a href="https://pmc.ncbi.nlm.nih.gov/articles/PMC11126007/" target="_blank" rel="noopener noreferrer">Bolpagni et al. 2024, personalized-wearable stress scoping review <span aria-hidden="true">↗</span></a>
           </article>
           <article class="evidence-card evidence-card--validation">
-            <span class="evidence-label">Calibrated alert bands</span>
-            <h4>Tiered change detection</h4>
-            <p>Moderate and higher-alert bands are checked only after smoothing, quality checks, and sustained change.</p>
-            <a href="https://pmc.ncbi.nlm.nih.gov/articles/PMC11233111/" target="_blank" rel="noopener noreferrer">Read wearable-limitations review <span aria-hidden="true">↗</span></a>
+            <span class="evidence-label">Known limitation</span>
+            <h4>No consumer wearable is a validated stress diagnostic</h4>
+            <p>A 2023 review of wearable health research concludes consumer devices "are not yet at the point of being able to reliably detect when a person is having a stress response" &mdash; this project inherits that limitation. <a class="inline-source" href="https://pmc.ncbi.nlm.nih.gov/articles/PMC11233111/" target="_blank" rel="noopener noreferrer">[2]</a></p>
+            <a href="https://pmc.ncbi.nlm.nih.gov/articles/PMC11233111/" target="_blank" rel="noopener noreferrer">Roos &amp; Slavich 2023, wearable-limitations review <span aria-hidden="true">↗</span></a>
           </article>
+        </section>
+
+        <section class="threshold-rationale" aria-labelledby="numbersRationaleTitle">
+          <h3 id="numbersRationaleTitle">Where the specific numbers (6/12 bpm, 40/80 GSR units, ~30s baseline) come from</h3>
+          <p>
+            The literature robustly supports the <em>direction</em> of these signals &mdash; HR and GSR rise with sympathetic arousal &mdash; but it does not hand over one universal cutoff. Reported HR reactivity to acute stress ranges from roughly <strong>&minus;7 to +36 bpm</strong> across individuals in controlled studies <a class="inline-source" href="https://www.sciencedirect.com/science/article/pii/S0301051121001095" target="_blank" rel="noopener noreferrer">[7]</a><a class="inline-source" href="https://www.tandfonline.com/doi/full/10.1080/10615806.2019.1648794" target="_blank" rel="noopener noreferrer">[8]</a>, so this project's <strong>6 bpm</strong> (stress) and <strong>12 bpm</strong> (anxiety) cutoffs sit inside that published range as a responsiveness/false-alarm tradeoff &mdash; they are engineering heuristics tuned on this project's own bench data, not values copied from a specific clinical protocol.
+          </p>
+          <p>
+            The GSR figures are a separate caveat: the HC-05 sensor reports a raw, uncalibrated 0&ndash;1200 sensor unit (see <code>bt_reader.py</code>/<code>pipeline.py</code>), not microsiemens (μS). Published EDA thresholds are stated in μS, so the "40" and "80" cutoffs here are internally consistent but are <em>not</em> directly comparable to any microsiemens figure in the literature.
+          </p>
+          <p>
+            The baseline window is a similar tradeoff: published stress-baseline protocols typically rest a subject for <strong>5&ndash;10 minutes</strong> before treating a reading as a stable reference <a class="inline-source" href="https://www.researchgate.net/publication/228696381_Establishing_Appropriate_Physiological_Baseline_Procedures_for_Real-Time_Physiological_Measurement" target="_blank" rel="noopener noreferrer">[9]</a>. This project calibrates in <strong>~30 seconds</strong> for usability, which means the baseline is noisier than a research-grade one &mdash; a deliberate UX tradeoff, disclosed here rather than hidden.
+          </p>
         </section>
 
         <section class="trust-flow" aria-labelledby="thresholdRationaleTitle">
@@ -234,11 +344,11 @@
             <h3 id="thresholdRationaleTitle">Why the estimate is more reliable</h3>
           </div>
           <ol>
-            <li><span>1</span><div><strong>Personal baseline</strong><small>First ~30 seconds establish your own reference level.</small></div></li>
+            <li><span>1</span><div><strong>Personal baseline</strong><small>First ~30 seconds establish your own reference level (shorter than the 5&ndash;10 min research norm <a class="inline-source" href="https://www.researchgate.net/publication/228696381_Establishing_Appropriate_Physiological_Baseline_Procedures_for_Real-Time_Physiological_Measurement" target="_blank" rel="noopener noreferrer">[9]</a>).</small></div></li>
             <li><span>2</span><div><strong>Cleaner readings</strong><small>Out-of-range values are rejected and readings are smoothed.</small></div></li>
-            <li><span>3</span><div><strong>Two-signal check</strong><small>HR and GSR changes are compared with that baseline.</small></div></li>
+            <li><span>3</span><div><strong>Two-signal check</strong><small>HR and GSR changes are compared with that baseline, rather than relying on one univariate threshold as most bedside monitors do <a class="inline-source" href="https://www.ncbi.nlm.nih.gov/books/NBK543632/" target="_blank" rel="noopener noreferrer">[4]</a>.</small></div></li>
             <li><span>4</span><div><strong>Confirmation gate</strong><small>Quality, sustained change, and ML confidence help prevent quick false alerts.</small></div></li>
-            <li><span>5</span><div><strong>Early trend warning</strong><small>Linear projection of current trend slopes capped at 30s, shown only above confidence floor.</small></div></li>
+            <li><span>5</span><div><strong>Early trend warning</strong><small>Linear projection of current trend slopes capped at 30s, shown only above confidence floor &mdash; an engineering heuristic, not a validated forecasting model (see below).</small></div></li>
           </ol>
         </section>
 
@@ -255,8 +365,8 @@
             <tbody>
               <tr>
                 <th scope="row"><span class="state-tag state-tag--calibration">Calibrating</span></th>
-                <td data-label="Decision rule">Set a personal baseline (~30 seconds).</td>
-                <td data-label="Evidence">Within-person comparison. <a class="inline-source" href="https://pmc.ncbi.nlm.nih.gov/articles/PMC11126007/" target="_blank" rel="noopener noreferrer">[1]</a></td>
+                <td data-label="Decision rule">Set a personal baseline (<span class="num">~30 seconds</span>).</td>
+                <td data-label="Evidence">Within-person comparison, shorter than the 5&ndash;10 min research norm. <a class="inline-source" href="https://pmc.ncbi.nlm.nih.gov/articles/PMC11126007/" target="_blank" rel="noopener noreferrer">[1]</a><a class="inline-source" href="https://www.researchgate.net/publication/228696381_Establishing_Appropriate_Physiological_Baseline_Procedures_for_Real-Time_Physiological_Measurement" target="_blank" rel="noopener noreferrer">[9]</a></td>
                 <td data-label="Safeguard">No prediction is shown yet.</td>
               </tr>
               <tr>
@@ -267,21 +377,21 @@
               </tr>
               <tr>
                 <th scope="row"><span class="state-tag state-tag--stress">Stress</span></th>
-                <td data-label="Decision rule"><strong>HR &gt; baseline + 6 bpm</strong> <em>or</em> <strong>GSR &gt; baseline + 40</strong>.</td>
-                <td data-label="Evidence">HR and EDA/GSR can reflect autonomic arousal. <a class="inline-source" href="https://pmc.ncbi.nlm.nih.gov/articles/PMC11126007/" target="_blank" rel="noopener noreferrer">[1]</a></td>
+                <td data-label="Decision rule"><strong>HR &gt; baseline + <span class="num">6 bpm</span></strong> <em>or</em> <strong>GSR &gt; baseline + <span class="num">40</span></strong>.</td>
+                <td data-label="Evidence">Within published HR-reactivity range for acute stress (&minus;7 to +36 bpm); exact cutoff is project-tuned, not paper-derived. <a class="inline-source" href="https://pmc.ncbi.nlm.nih.gov/articles/PMC11126007/" target="_blank" rel="noopener noreferrer">[1]</a><a class="inline-source" href="https://www.sciencedirect.com/science/article/pii/S0301051121001095" target="_blank" rel="noopener noreferrer">[7]</a></td>
                 <td data-label="Safeguard">Smoothed, sustained input is required.</td>
               </tr>
               <tr>
                 <th scope="row"><span class="state-tag state-tag--anxiety">Anxiety</span></th>
-                <td data-label="Decision rule"><strong>HR &gt; baseline + 12 bpm</strong> <em>and</em> <strong>GSR &gt; baseline + 80</strong>, or high-confidence ML.</td>
-                <td data-label="Evidence">A combined rise can indicate stronger arousal. <a class="inline-source" href="https://pmc.ncbi.nlm.nih.gov/articles/PMC11126007/" target="_blank" rel="noopener noreferrer">[1]</a></td>
+                <td data-label="Decision rule"><strong>HR &gt; baseline + <span class="num">12 bpm</span></strong> <em>and</em> <strong>GSR &gt; baseline + <span class="num">80</span></strong>, or high-confidence ML.</td>
+                <td data-label="Evidence">Dual-signal (HR + GSR) rule-based detection mirrors published multi-criterion stress-moment scoring. <a class="inline-source" href="https://pmc.ncbi.nlm.nih.gov/articles/PMC11126007/" target="_blank" rel="noopener noreferrer">[1]</a><a class="inline-source" href="https://pmc.ncbi.nlm.nih.gov/articles/PMC6749249/" target="_blank" rel="noopener noreferrer">[3]</a></td>
                 <td data-label="Safeguard">Dual-signal and confidence checks apply.</td>
               </tr>
               <tr>
                 <th scope="row"><span class="state-tag state-tag--recovery">Recovery</span></th>
                 <td data-label="Decision rule">Falling HR trend after an anxiety state.</td>
-                <td data-label="Evidence">Can indicate reduced arousal.</td>
-                <td data-label="Safeguard">Pattern must hold for 5 seconds.</td>
+                <td data-label="Evidence">Consistent with parasympathetic rebound after sympathetic activation; not independently cited here.</td>
+                <td data-label="Safeguard">Pattern must hold for <span class="num">5 seconds</span>.</td>
               </tr>
             </tbody>
           </table>
@@ -316,16 +426,62 @@
               <dt>Safety gate</dt>
               <dd>ML can override only for ANXIETY when <strong>model probability × signal quality ≥ 0.75</strong>; otherwise the rule model remains in control.</dd>
             </div>
+            <div>
+              <dt>Measured accuracy</dt>
+              <dd><strong>95.7%</strong> on a held-out 20% test split (1,067 samples; 96.7% on the 4,268-sample training split). Class balance: 3,441 CALM / 1,894 ANXIETY across 5,335 rows.</dd>
+            </div>
+            <div>
+              <dt>Literature benchmark</dt>
+              <dd>Published Random Forest models on wearable HR/HRV + GSR stress data report accuracy from roughly 80% up to &gt;99% depending on dataset and validation protocol <a class="inline-source" href="https://www.mdpi.com/1424-8220/23/11/5220" target="_blank" rel="noopener noreferrer">[5]</a><a class="inline-source" href="https://arxiv.org/pdf/2202.03033" target="_blank" rel="noopener noreferrer">[6]</a> &mdash; this project's 95.7% is plausible within that spread, but the studies differ in sensors, subjects, and label source, so it is a sanity check, not a like-for-like comparison.</dd>
+            </div>
           </dl>
           <p class="ml-model-limit"><strong>Validation status:</strong> this local development model has no external clinical validation. Its output is a supporting signal, not medical evidence or a diagnosis.</p>
+          <p class="ml-model-limit"><strong>Read the accuracy number carefully:</strong> the training labels were assigned using the same delta-from-baseline logic the rule engine uses, on the same engineered features. A high test score mostly shows the model reproduces that internal logic consistently &mdash; it is <em>not</em> evidence the labels themselves correspond to clinically confirmed anxiety, and it does not measure real-world performance on a different person, sensor, or day.</p>
         </section>
 
-        <p class="evidence-links">
-          Evidence context:
-          <a href="https://www.ncbi.nlm.nih.gov/books/NBK589926/table/t02/" target="_blank" rel="noopener noreferrer">NCBI: pulse and EDA as autonomic measures</a>
-          <span aria-hidden="true">·</span>
-          <a href="https://pubmed.ncbi.nlm.nih.gov/36893657/" target="_blank" rel="noopener noreferrer">systematic review of wearable stress ML</a>
-        </p>
+        <section class="ml-model-card" aria-labelledby="predictionModelTitle">
+          <div class="ml-model-header">
+            <div>
+              <p class="eyebrow">Early-warning layer</p>
+              <h3 id="predictionModelTitle">How the trend forecast is computed</h3>
+            </div>
+            <span class="ml-model-badge">Linear extrapolation</span>
+          </div>
+          <dl class="ml-model-grid">
+            <div>
+              <dt>What it uses</dt>
+              <dd>The current window's <strong>HR trend</strong> and <strong>GSR trend</strong> (least-squares slopes), converted to a rate of change of the same <strong>stress index</strong> the rule engine already uses.</dd>
+            </div>
+            <div>
+              <dt>How the countdown is made</dt>
+              <dd>It measures the gap between the current stress index and the next state's rule threshold, then divides by the current rate of rise &mdash; a straight-line projection, not a machine-learned forecast.</dd>
+            </div>
+            <div>
+              <dt>When it is shown</dt>
+              <dd>Only once calibration is complete, only while HR and/or GSR are genuinely rising, only when signal confidence is <strong>≥ 0.5</strong>, and capped at a <strong>30-second</strong> horizon.</dd>
+            </div>
+            <div>
+              <dt>When it is cleared</dt>
+              <dd>Immediately on two consecutive falling-HR readings (trend reversal), once the state machine reaches the forecast state, or if the horizon would exceed 30s.</dd>
+            </div>
+          </dl>
+          <p class="ml-model-limit"><strong>Limitation:</strong> this is a same-signal extrapolation of the last few seconds, not a validated predictive model &mdash; it assumes the current rate of change continues linearly, which short bursts of movement or noise can break.</p>
+        </section>
+
+        <div class="evidence-links">
+          <p style="margin:0 0 8px"><strong>References</strong> &mdash; every [n] citation above links to one of these:</p>
+          <ol class="evidence-reference-list">
+            <li id="ref-1">Bolpagni, Pardini, Dianti &amp; Gabrielli (2024). <a href="https://pmc.ncbi.nlm.nih.gov/articles/PMC11126007/" target="_blank" rel="noopener noreferrer">Personalized Stress Detection Using Biosignals from Wearables: A Scoping Review</a>.</li>
+            <li id="ref-2">Roos &amp; Slavich (2023). <a href="https://pmc.ncbi.nlm.nih.gov/articles/PMC11233111/" target="_blank" rel="noopener noreferrer">Wearable technologies for health research: Opportunities, limitations, and practical and conceptual considerations</a>.</li>
+            <li id="ref-3">Kyriakou et al. (2019). <a href="https://pmc.ncbi.nlm.nih.gov/articles/PMC6749249/" target="_blank" rel="noopener noreferrer">Detecting Moments of Stress from Measurements of Wearable Physiological Sensors</a>. <em>Sensors</em>.</li>
+            <li id="ref-4">Li &amp; Clifford (2016). <a href="https://www.ncbi.nlm.nih.gov/books/NBK543632/" target="_blank" rel="noopener noreferrer">Signal Processing: False Alarm Reduction</a>, in <em>Secondary Analysis of Electronic Health Records</em>.</li>
+            <li id="ref-5"><a href="https://www.mdpi.com/1424-8220/23/11/5220" target="_blank" rel="noopener noreferrer">Global Stress Detection Framework Combining a Reduced Set of HRV Features and Random Forest Model</a>. <em>Sensors</em> 23(11):5220 (2023).</li>
+            <li id="ref-6"><a href="https://arxiv.org/pdf/2202.03033" target="_blank" rel="noopener noreferrer">Human Stress Assessment: A Comprehensive Review of Methods Using Wearable Sensors and Non-wearable Techniques</a>.</li>
+            <li id="ref-7"><a href="https://www.sciencedirect.com/science/article/pii/S0301051121001095" target="_blank" rel="noopener noreferrer">Life events are associated with elevated heart rate and reduced heart complexity to acute psychological stress</a>.</li>
+            <li id="ref-8"><a href="https://www.tandfonline.com/doi/full/10.1080/10615806.2019.1648794" target="_blank" rel="noopener noreferrer">Associations between heart rate, perceived heart rate, and anxiety during acute psychological stress</a>. <em>Anxiety, Stress &amp; Coping</em> (2019).</li>
+            <li id="ref-9">Fishel, Muth &amp; Hoover. <a href="https://www.researchgate.net/publication/228696381_Establishing_Appropriate_Physiological_Baseline_Procedures_for_Real-Time_Physiological_Measurement" target="_blank" rel="noopener noreferrer">Establishing Appropriate Physiological Baseline Procedures for Real-Time Physiological Measurement</a>.</li>
+          </ol>
+        </div>
         </div>
       </aside>
 
