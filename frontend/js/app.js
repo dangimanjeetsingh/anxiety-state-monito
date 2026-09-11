@@ -1,9 +1,20 @@
 // ── DOM refs ────────────────────────────────────────────────────────────────
 const HR_EL         = document.getElementById("hrVal");
 const GSR_EL        = document.getElementById("gsrVal");
+const HR_MINI_BAR   = document.getElementById("hrMiniBar");
+const GSR_MINI_BAR  = document.getElementById("gsrMiniBar");
+const HR_TREND      = document.getElementById("hrTrend");
+const GSR_TREND     = document.getElementById("gsrTrend");
+const METRIC_HISTORY_LEN = 8;
+let hrHistory = [];
+let gsrHistory = [];
 const STATE_EL      = document.getElementById("stateVal");
 const META_EL       = document.getElementById("metaVal");
 const STATE_CARD    = document.getElementById("stateCard");
+const STATE_RING_PROGRESS = document.getElementById("stateRingProgressFill");
+const STATE_CAL_CAPTION   = document.getElementById("stateCalibratingPct");
+const STATE_RING_CIRC = 2 * Math.PI * 46;
+const CALIBRATION_TARGET_SAMPLES = 30;
 const CONN_TEXT     = document.getElementById("connText");
 const CONN_DOT      = document.getElementById("connDot");
 const BASELINE_INFO = document.getElementById("baselineInfo");
@@ -14,6 +25,11 @@ const CAL_BANNER    = document.getElementById("calibrationBanner");
 const CAL_TITLE     = document.getElementById("calibrationTitle");
 const CAL_MESSAGE   = document.getElementById("calibrationMessage");
 const CAL_STATUS    = document.getElementById("calibrationStatus");
+
+// Phase 4 refs
+const STATUS_STRIP     = document.getElementById("statusStrip");
+const CALIBRATED_PILL  = document.getElementById("calibratedPill");
+const CALIBRATED_DETAIL= document.getElementById("calibratedDetail");
 const GUIDE_TOGGLE  = document.getElementById("guideToggle");
 const GUIDE_DRAWER  = document.getElementById("interpretationDrawer");
 const GUIDE_BACKDROP = document.getElementById("guideBackdrop");
@@ -81,8 +97,68 @@ function initChart() {
         x: { ticks: { color: "#9aa3b2", maxTicksLimit: 8 }, grid: { color: "rgba(255,255,255,0.05)" } },
         y: { ticks: { color: "#9aa3b2" }, grid: { color: "rgba(255,255,255,0.05)" } },
       },
-      plugins: { legend: { labels: { color: "#e8eaef", font: { size: 12, weight: "600" }, padding: 12 } } },
+      plugins: {
+        legend: { labels: { color: "#e8eaef", font: { size: 12, weight: "600" }, padding: 12 } },
+        annotation: { annotations: {} },
+      },
     },
+  });
+}
+
+// ── Chart state-transition markers (Phase 5) ───────────────────────────────
+// Draws a dashed vertical line + colored label pill at each FSM state change,
+// capped to the points still visible in the chart's rolling MAX_PTS window.
+function cssVar(name) {
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+}
+
+const STATE_MARKER_COLORS = {
+  CALM: "--calm",
+  STRESS: "--stress",
+  ANXIETY: "--anxiety",
+  RECOVERY: "--recovery",
+};
+
+let lastChartState = null;
+let stateMarkers = []; // { id, label } — label must match an entry in chart.data.labels
+let markerSeq = 0;
+
+function addStateMarker(label, state) {
+  const tokenName = STATE_MARKER_COLORS[state];
+  if (!chart || !tokenName) return;
+  const color = cssVar(tokenName);
+  if (!color) return;
+
+  const id = "stateMarker" + (markerSeq++);
+  chart.options.plugins.annotation.annotations[id] = {
+    type: "line",
+    scaleID: "x",
+    value: label,
+    borderColor: color,
+    borderWidth: 1.5,
+    borderDash: [5, 4],
+    label: {
+      display: true,
+      content: state,
+      position: "start",
+      backgroundColor: color,
+      color: cssVar("--bg-base") || "#0E1420",
+      font: { size: 9, weight: "700" },
+      padding: { top: 2, bottom: 2, left: 5, right: 5 },
+      borderRadius: 4,
+    },
+  };
+  stateMarkers.push({ id: id, label: label });
+}
+
+function pruneStateMarkers(visibleLabels) {
+  if (!chart) return;
+  const annotations = chart.options.plugins.annotation.annotations;
+  const visible = new Set(visibleLabels);
+  stateMarkers = stateMarkers.filter(function (m) {
+    if (visible.has(m.label)) return true;
+    delete annotations[m.id];
+    return false;
   });
 }
 
@@ -92,12 +168,25 @@ function stateClass(s) {
   return { CALM: "state-calm", STRESS: "state-stress", ANXIETY: "state-anxiety", RECOVERY: "state-recovery", ACTIVE: "state-active" }[s] || "";
 }
 
+// Phase 9: nudge the state-card's continuous pulse rate with current HR
+// (higher HR = slightly faster). Purely cosmetic — sets a CSS variable only.
+function updatePulseRate(hr) {
+  if (!STATE_CARD || hr == null) return;
+  var clamped = Math.max(50, Math.min(140, hr));
+  var duration = 4.2 - ((clamped - 50) / 90) * 2.4; // ~4.2s at 50bpm down to ~1.8s at 140bpm
+  STATE_CARD.style.setProperty("--pulse-duration", duration.toFixed(2) + "s");
+}
+
 function clearReadings() {
   if (HR_EL)  HR_EL.textContent  = "—";
   if (GSR_EL) GSR_EL.textContent = "—";
   if (STATE_EL) STATE_EL.textContent = "—";
   if (STATE_CARD) STATE_CARD.classList.remove("state-calm", "state-stress", "state-anxiety", "state-recovery", "state-active");
   if (META_EL) META_EL.textContent = "";
+  hrHistory = [];
+  gsrHistory = [];
+  if (HR_TREND) HR_TREND.classList.remove("is-rising", "is-falling");
+  if (GSR_TREND) GSR_TREND.classList.remove("is-rising", "is-falling");
 }
 
 function setConn(conn, detail) {
@@ -128,6 +217,46 @@ function setSensorWarning(warning) {
   } else {
     SW_BANNER.style.display = "none";
   }
+}
+
+// ── Round 5: live mini-bar sparkline + trend badge for HR/GSR cards ───────────
+function pushHistory(arr, value) {
+  arr.push(value);
+  if (arr.length > METRIC_HISTORY_LEN) arr.shift();
+}
+
+function updateMiniBar(el, history) {
+  if (!el) return;
+  const bars = el.children;
+  const min = Math.min.apply(null, history);
+  const max = Math.max.apply(null, history);
+  const range = (max - min) || 1;
+  for (var i = 0; i < bars.length; i++) {
+    var histIdx = history.length - bars.length + i;
+    var v = histIdx >= 0 ? history[histIdx] : history[0];
+    var pct = 15 + ((v - min) / range) * 75;
+    bars[i].style.height = pct.toFixed(0) + "%";
+  }
+}
+
+function updateTrend(el, history, threshold) {
+  if (!el) return;
+  var dir = "steady";
+  if (history.length >= 4) {
+    var recent = history[history.length - 1];
+    var past = history[Math.max(0, history.length - 6)];
+    var diff = recent - past;
+    if (diff > threshold) dir = "rising";
+    else if (diff < -threshold) dir = "falling";
+  }
+  el.classList.remove("is-rising", "is-falling");
+  if (dir !== "steady") el.classList.add("is-" + dir);
+  var arrowEl = el.querySelector(".metric-trend-arrow");
+  var labelEl = el.querySelector(".metric-trend-label");
+  var arrow = dir === "rising" ? "↑" : dir === "falling" ? "↓" : "→";
+  var label = dir === "rising" ? "Rising" : dir === "falling" ? "Falling" : "Steady";
+  if (arrowEl) arrowEl.textContent = arrow;
+  if (labelEl) labelEl.textContent = label;
 }
 
 // ── Calibration Status ────────────────────────────────────────────────────────
@@ -164,6 +293,31 @@ function setCalibrationStatus(d) {
       : "Your personal baseline is ready. Live state predictions are now active.";
     CAL_STATUS.textContent = "Prediction active";
   }
+
+  // Phase 4: once calibrated, swap the full-width banner for the compact
+  // status strip so it stops permanently occupying space.
+  if (STATUS_STRIP) {
+    STATUS_STRIP.style.display = calibrated ? "flex" : "none";
+    CAL_BANNER.style.display = calibrated ? "none" : "flex";
+  }
+  // Calibrated pill now lives in the header (moved out of #statusStrip), so
+  // its visibility is no longer implied by the strip's — toggle it directly.
+  if (CALIBRATED_PILL) {
+    CALIBRATED_PILL.style.display = calibrated ? "flex" : "none";
+  }
+  if (CALIBRATED_DETAIL) {
+    CALIBRATED_DETAIL.textContent = calibrated && d.baseline_hr != null && d.baseline_gsr != null
+      ? "Personal baseline locked in — HR " + Math.round(d.baseline_hr) + " · GSR " + Math.round(d.baseline_gsr) + "."
+      : "";
+  }
+}
+
+if (CALIBRATED_PILL && CALIBRATED_DETAIL) {
+  CALIBRATED_PILL.addEventListener("click", () => {
+    const expanded = CALIBRATED_PILL.getAttribute("aria-expanded") === "true";
+    CALIBRATED_PILL.setAttribute("aria-expanded", String(!expanded));
+    CALIBRATED_DETAIL.hidden = expanded;
+  });
 }
 
 // ── Shared: elevated state detection (FSM + ML fusion + alerts) ───────────────
@@ -183,21 +337,42 @@ function isElevatedForBreathing(d) {
 }
 
 // ── Feature 1: Predictive Early Warning ───────────────────────────────────────
+// Phase 4: this pill lives inside #statusStrip alongside the "Calibrated" pill.
+// It never disappears once calibrated — when no prediction is active it falls
+// back to a neutral "next reading" message instead of leaving an empty gap,
+// but the countdown badge only ever shows a real countdown (see task 5).
+const PRED_ICON = PRED_BANNER ? PRED_BANNER.querySelector(".pred-icon") : null;
+
 function updatePredictionBanner(d) {
   if (!PRED_BANNER || !PRED_TITLE || !PRED_DETAIL || !PRED_COUNTDOWN) return;
 
+  if (d.calibrated !== true) {
+    // Pre-calibration: #statusStrip itself is hidden by setCalibrationStatus(),
+    // so this is just a safe default.
+    PRED_BANNER.style.display = "none";
+    return;
+  }
+
   const pred = d.prediction;
-  if (d.calibrated === true && pred && pred.active === true && pred.seconds_to_transition != null) {
+  PRED_BANNER.style.display = "flex";
+
+  if (pred && pred.active === true && pred.seconds_to_transition != null) {
     const sec = Math.max(1, Math.round(pred.seconds_to_transition));
     const target = pred.predicted_state || "STRESS";
+    PRED_BANNER.classList.remove("is-idle");
+    if (PRED_ICON) PRED_ICON.textContent = "⚡";
     PRED_TITLE.textContent = "Trending toward " + target + " in ~" + sec + "s";
     PRED_DETAIL.textContent = pred.basis
       ? "Early forecast basis: " + pred.basis + " (linear projection capped at 30s)"
       : "Linear trend projection based on physiological slope indicators.";
     PRED_COUNTDOWN.textContent = "~" + sec + "s";
-    PRED_BANNER.style.display = "flex";
+    PRED_COUNTDOWN.style.display = "";
   } else {
-    PRED_BANNER.style.display = "none";
+    PRED_BANNER.classList.add("is-idle");
+    if (PRED_ICON) PRED_ICON.textContent = "⏱";
+    PRED_TITLE.textContent = "Next reading in ~1s";
+    PRED_DETAIL.textContent = "Collecting and analysing…";
+    PRED_COUNTDOWN.style.display = "none";
   }
 }
 
@@ -526,13 +701,39 @@ function render(d) {
 
   if (HR_EL)  HR_EL.textContent  = d.hr  != null ? Math.round(d.hr)  : "—";
   if (GSR_EL) GSR_EL.textContent = d.gsr != null ? Math.round(d.gsr) : "—";
+  updatePulseRate(d.hr);
+
+  if (d.hr != null) {
+    pushHistory(hrHistory, d.hr);
+    updateMiniBar(HR_MINI_BAR, hrHistory);
+    updateTrend(HR_TREND, hrHistory, 2.5);
+  }
+  if (d.gsr != null) {
+    pushHistory(gsrHistory, d.gsr);
+    updateMiniBar(GSR_MINI_BAR, gsrHistory);
+    updateTrend(GSR_TREND, gsrHistory, 15);
+  }
 
   const calibrating = !d.calibrated && (conn === "connected" || conn === "mock");
-  if (STATE_EL) STATE_EL.textContent = calibrating ? "CALIBRATING" : (d.state || "—");
+  if (STATE_EL) {
+    STATE_EL.textContent = calibrating ? "CALIBRATING" : (d.state || "—");
+    STATE_EL.classList.toggle("state--compact", calibrating);
+  }
   if (STATE_CARD) {
-    STATE_CARD.classList.remove("state-calm","state-stress","state-anxiety","state-recovery","state-active");
-    var cls = calibrating ? "" : stateClass(d.state);
+    STATE_CARD.classList.remove("state-calm","state-stress","state-anxiety","state-recovery","state-active","state-calibrating");
+    var cls = calibrating ? "state-calibrating" : stateClass(d.state);
     if (cls) STATE_CARD.classList.add(cls);
+  }
+  if (STATE_RING_PROGRESS) {
+    var calProgress = calibrating
+      ? Math.max(0, Math.min(1, (d.window_samples || 0) / CALIBRATION_TARGET_SAMPLES))
+      : 0;
+    STATE_RING_PROGRESS.style.strokeDashoffset = String(STATE_RING_CIRC * (1 - calProgress));
+    if (STATE_CAL_CAPTION) {
+      STATE_CAL_CAPTION.textContent = calibrating
+        ? "Establishing baseline · " + Math.round(calProgress * 100) + "%"
+        : "Establishing baseline";
+    }
   }
 
   if (META_EL)
@@ -554,6 +755,14 @@ function render(d) {
 
   if (chart && d.hr != null && d.gsr != null) {
     var t = new Date().toLocaleTimeString();
+
+    if (d.state && d.state !== lastChartState) {
+      if (lastChartState !== null) {
+        addStateMarker(t, d.state);
+      }
+      lastChartState = d.state;
+    }
+
     chart.data.labels.push(t);
     chart.data.datasets[0].data.push(d.hr);
     chart.data.datasets[1].data.push(d.gsr / 4);
@@ -562,6 +771,7 @@ function render(d) {
       chart.data.datasets[0].data.shift();
       chart.data.datasets[1].data.shift();
     }
+    pruneStateMarkers(chart.data.labels);
     chart.update("none");
   }
 
