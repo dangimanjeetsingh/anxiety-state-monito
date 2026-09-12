@@ -77,31 +77,143 @@ const MAX_PTS = 60;
 let chart;
 let recoveryChart;
 
+// Appearance only: the two signal colours below are the same values the HR and
+// GSR cards are tinted with in style.css, so a card and its trace read as one
+// signal. Data, labels, dataset order and the state markers are unchanged.
+const CHART_HR_COLOR  = "#22D3EE";
+const CHART_GSR_COLOR = "#E879F9";
+const CHART_GRID       = "rgba(244,244,247,0.06)";
+const CHART_TICK       = "rgba(139,139,152,0.9)";
+const CHART_TICK_FONT  = { family: "'JetBrains Mono', Consolas, monospace", size: 10 };
+
+// A vertical fade under each trace. Built against the canvas so it follows the
+// plot area on resize; falls back to a flat tint before the area is measured.
+function chartAreaGradient(context, hex) {
+  const chartObj = context.chart;
+  const area = chartObj.chartArea;
+  if (!area) return hexToRgba(hex, 0.1);
+  const g = chartObj.ctx.createLinearGradient(0, area.top, 0, area.bottom);
+  g.addColorStop(0, hexToRgba(hex, 0.34));
+  g.addColorStop(0.55, hexToRgba(hex, 0.1));
+  g.addColorStop(1, hexToRgba(hex, 0));
+  return g;
+}
+
+function hexToRgba(hex, alpha) {
+  const n = parseInt(hex.slice(1), 16);
+  return "rgba(" + ((n >> 16) & 255) + "," + ((n >> 8) & 255) + "," + (n & 255) + "," + alpha + ")";
+}
+
+// Soft bloom around the traces — purely decorative, drawn by shadowing the
+// line stroke and cleared again so nothing else on the canvas inherits it.
+const lineGlowPlugin = {
+  id: "lineGlow",
+  beforeDatasetDraw: function (chartObj, args) {
+    const c = chartObj.ctx;
+    c.save();
+    c.shadowColor = args.meta.dataset.borderColor;
+    c.shadowBlur = 14;
+    c.shadowOffsetY = 2;
+  },
+  afterDatasetDraw: function (chartObj) {
+    chartObj.ctx.restore();
+  },
+};
+
 function initChart() {
   const ctx = document.getElementById("liveChart");
   if (!ctx) return;
+  // Highlight the newest sample only, so the eye lands on "now".
+  const headPoint = function (size) {
+    return function (context) {
+      return context.dataIndex === context.dataset.data.length - 1 ? size : 0;
+    };
+  };
   chart = new Chart(ctx, {
     type: "line",
     data: {
       labels: [],
       datasets: [
-        { label: "HR (bpm)", data: [], borderColor: "#5c7cfa", backgroundColor: "rgba(92,124,250,0.12)", tension: 0.35, pointRadius: 0, borderWidth: 2.2, fill: true },
-        { label: "GSR / 4",  data: [], borderColor: "#a371f7", backgroundColor: "rgba(163,113,247,0.08)", tension: 0.35, pointRadius: 0, borderWidth: 2.2, fill: true },
+        {
+          label: "HR (bpm)",
+          data: [],
+          borderColor: CHART_HR_COLOR,
+          backgroundColor: function (c) { return chartAreaGradient(c, CHART_HR_COLOR); },
+          tension: 0.38,
+          borderWidth: 2.4,
+          fill: true,
+          pointRadius: headPoint(3.6),
+          pointHoverRadius: 5,
+          pointBackgroundColor: CHART_HR_COLOR,
+          pointBorderColor: "#0B0B0F",
+          pointBorderWidth: 2,
+        },
+        {
+          label: "GSR / 4",
+          data: [],
+          borderColor: CHART_GSR_COLOR,
+          backgroundColor: function (c) { return chartAreaGradient(c, CHART_GSR_COLOR); },
+          tension: 0.38,
+          borderWidth: 2.4,
+          fill: true,
+          pointRadius: headPoint(3.6),
+          pointHoverRadius: 5,
+          pointBackgroundColor: CHART_GSR_COLOR,
+          pointBorderColor: "#0B0B0F",
+          pointBorderWidth: 2,
+        },
       ],
     },
     options: {
       responsive: true,
       maintainAspectRatio: false,
       animation: false,
+      layout: { padding: { top: 16, right: 6, bottom: 0, left: 0 } },
+      interaction: { mode: "index", intersect: false },
       scales: {
-        x: { ticks: { color: "#9aa3b2", maxTicksLimit: 8 }, grid: { color: "rgba(255,255,255,0.05)" } },
-        y: { ticks: { color: "#9aa3b2" }, grid: { color: "rgba(255,255,255,0.05)" } },
+        x: {
+          border: { display: false },
+          // Vertical rules add noise to a time series; the state markers are
+          // the only vertical lines worth drawing here.
+          grid: { display: false },
+          ticks: { color: CHART_TICK, font: CHART_TICK_FONT, maxTicksLimit: 7, maxRotation: 0, padding: 6 },
+        },
+        y: {
+          border: { display: false },
+          grid: { color: CHART_GRID, drawTicks: false },
+          ticks: { color: CHART_TICK, font: CHART_TICK_FONT, maxTicksLimit: 6, padding: 8 },
+        },
       },
       plugins: {
-        legend: { labels: { color: "#e8eaef", font: { size: 12, weight: "600" }, padding: 12 } },
+        legend: {
+          align: "end",
+          labels: {
+            color: "rgba(244,244,247,0.75)",
+            font: { family: "'Sora', system-ui, sans-serif", size: 11, weight: "600" },
+            usePointStyle: true,
+            pointStyle: "circle",
+            boxWidth: 7,
+            boxHeight: 7,
+            padding: 18,
+          },
+        },
+        tooltip: {
+          backgroundColor: "rgba(11,11,15,0.95)",
+          borderColor: "rgba(244,244,247,0.14)",
+          borderWidth: 1,
+          titleColor: "rgba(139,139,152,0.95)",
+          titleFont: { family: "'Sora', system-ui, sans-serif", size: 10, weight: "600" },
+          bodyColor: "#F4F4F7",
+          bodyFont: { family: "'JetBrains Mono', Consolas, monospace", size: 12 },
+          cornerRadius: 8,
+          padding: 10,
+          displayColors: true,
+          usePointStyle: true,
+        },
         annotation: { annotations: {} },
       },
     },
+    plugins: [lineGlowPlugin],
   });
 }
 
@@ -135,17 +247,18 @@ function addStateMarker(label, state) {
     scaleID: "x",
     value: label,
     borderColor: color,
-    borderWidth: 1.5,
-    borderDash: [5, 4],
+    borderWidth: 1.25,
+    borderDash: [3, 5],
     label: {
       display: true,
       content: state,
       position: "start",
       backgroundColor: color,
-      color: cssVar("--bg-base") || "#0E1420",
-      font: { size: 9, weight: "700" },
-      padding: { top: 2, bottom: 2, left: 5, right: 5 },
-      borderRadius: 4,
+      color: cssVar("--bg-base") || "#0B0B0F",
+      font: { family: "'Sora', system-ui, sans-serif", size: 9, weight: "700" },
+      padding: { top: 3, bottom: 3, left: 7, right: 7 },
+      borderRadius: 999,
+      yAdjust: -6,
     },
   };
   stateMarkers.push({ id: id, label: label });
@@ -171,8 +284,12 @@ function stateClass(s) {
 // Phase 9: nudge the state-card's continuous pulse rate with current HR
 // (higher HR = slightly faster). Purely cosmetic — sets a CSS variable only.
 function updatePulseRate(hr) {
-  if (!STATE_CARD || hr == null) return;
+  if (hr == null) return;
   var clamped = Math.max(50, Math.min(140, hr));
+  // Appearance only: --hr-beat is the live beat-to-beat interval, so the heart
+  // icon on the HR card beats at the rate actually being measured.
+  document.documentElement.style.setProperty("--hr-beat", (60 / clamped).toFixed(3) + "s");
+  if (!STATE_CARD) return;
   var duration = 4.2 - ((clamped - 50) / 90) * 2.4; // ~4.2s at 50bpm down to ~1.8s at 140bpm
   STATE_CARD.style.setProperty("--pulse-duration", duration.toFixed(2) + "s");
 }
@@ -632,11 +749,11 @@ function renderRecoveryChart() {
         {
           label: "Heart rate (bpm)",
           data: hrData,
-          borderColor: "#3fb950",
-          backgroundColor: "rgba(63,185,80,0.12)",
-          tension: 0.35,
+          borderColor: "#4ADE80",
+          backgroundColor: function (c) { return chartAreaGradient(c, "#4ADE80"); },
+          tension: 0.38,
           pointRadius: 0,
-          borderWidth: 2,
+          borderWidth: 2.2,
           fill: true,
         },
       ],
@@ -644,12 +761,24 @@ function renderRecoveryChart() {
     options: {
       responsive: true,
       maintainAspectRatio: false,
+      layout: { padding: { top: 10 } },
       scales: {
-        x: { ticks: { color: "#9aa3b2", maxTicksLimit: 6 }, grid: { display: false } },
-        y: { ticks: { color: "#9aa3b2" }, grid: { color: "rgba(255,255,255,0.05)" } },
+        x: { border: { display: false }, ticks: { color: CHART_TICK, font: CHART_TICK_FONT, maxTicksLimit: 6, maxRotation: 0 }, grid: { display: false } },
+        y: { border: { display: false }, grid: { color: CHART_GRID, drawTicks: false }, ticks: { color: CHART_TICK, font: CHART_TICK_FONT, maxTicksLimit: 5, padding: 6 } },
       },
       plugins: {
-        legend: { labels: { color: "#e8eaef", font: { size: 11 } } },
+        legend: {
+          align: "end",
+          labels: {
+            color: "rgba(244,244,247,0.75)",
+            font: { family: "'Sora', system-ui, sans-serif", size: 11, weight: "600" },
+            usePointStyle: true,
+            pointStyle: "circle",
+            boxWidth: 7,
+            boxHeight: 7,
+            padding: 14,
+          },
+        },
       },
     },
   });

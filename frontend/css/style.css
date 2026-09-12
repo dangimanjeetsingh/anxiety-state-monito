@@ -2351,3 +2351,958 @@ body.drawer-open {
  grid-template-columns: repeat(2, 1fr);
  }
 }
+
+/* ══════════════════════════════════════════════════════════════════════════
+   REDESIGN — theme, layout and state block
+   ──────────────────────────────────────────────────────────────────────────
+   This replaces four earlier stacked override layers with one pass, because
+   those layers were fighting each other and that is what kept the dashboard
+   looking inconsistent.
+
+   Theme        navy → neutral graphite. The old surfaces were all blue-tinted
+                and within a few percent of each other, which read as muddy
+                and flat. Ground is now near-black neutral, panels are lifted
+                two clear steps, and colour is spent only where it carries
+                meaning: state, and the two signals.
+
+   Layout       back to a vertical stack — state panel on the left, HR above
+                GSR on the right, chart full width beneath. The three-across
+                row is gone.
+
+   State block  the word is out of the circle. Cramming a long label, an icon
+                and a caption inside a 150px ring is why it always looked odd.
+                The circle is now a small dial that carries the calibration
+                arc; the state word is plain large type beside it.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+:root {
+  /* ── Ground and surfaces: a real value scale, neutral rather than navy ── */
+  --bg-base: #0B0B0F;
+  --bg-panel: #15151B;
+  --bg-elevated: #1C1C24;
+  --border: #282833;
+  --ink: #F4F4F7;
+  --muted: #8B8B98;
+
+  --bg-base-rgb: 11, 11, 15;
+  --bg-panel-rgb: 21, 21, 27;
+  --bg-elevated-rgb: 28, 28, 36;
+  --ink-rgb: 244, 244, 247;
+  --muted-rgb: 139, 139, 152;
+
+  /* ── State colours: green → amber → red → blue, clearly separated ────── */
+  --calm: #4ADE80;
+  --stress: #FBBF24;
+  --anxiety: #FB4E5A;
+  --recovery: #60A5FA;
+  --calm-rgb: 74, 222, 128;
+  --stress-rgb: 251, 191, 36;
+  --anxiety-rgb: 251, 78, 90;
+  --recovery-rgb: 96, 165, 250;
+
+  /* ── Interface accent, distinct from every state colour ──────────────── */
+  --accent: #A78BFA;
+  --accent-rgb: 167, 139, 250;
+  --active: var(--stress);
+
+  /* ── Signal colours: the HR/GSR cards and their chart traces ─────────── */
+  --hr: #22D3EE;
+  --hr-rgb: 34, 211, 238;
+  --gsr: #E879F9;
+  --gsr-rgb: 232, 121, 249;
+
+  --radius: 14px;
+  --radius-sm: 9px;
+  --hairline: rgba(var(--ink-rgb), 0.08);
+  --hairline-strong: rgba(var(--ink-rgb), 0.15);
+  --panel: linear-gradient(180deg, #1A1A22 0%, #15151B 100%);
+  --lift:
+    inset 0 1px 0 rgba(var(--ink-rgb), 0.06),
+    0 1px 2px rgba(0, 0, 0, 0.45),
+    0 16px 32px -24px rgba(0, 0, 0, 0.9);
+  --ease: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+body {
+  background:
+    radial-gradient(1100px 560px at 50% -20%, rgba(var(--accent-rgb), 0.07), transparent 62%),
+    var(--bg-base);
+  background-attachment: fixed;
+  color: var(--ink);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ══ Page frame — one screen, chart absorbs the slack ════════════════════ */
+.layout {
+  display: flex;
+  flex-direction: column;
+  max-width: 1560px;
+  height: 100vh;
+  height: 100dvh;
+  min-height: 580px;
+  padding: clamp(12px, 1.8vh, 20px) clamp(16px, 2.6vw, 30px) clamp(10px, 1.4vh, 16px);
+}
+
+.header,
+.status-row,
+.cards,
+.breathing-prompt,
+.sensor-warning,
+.recovery-card,
+.instructions,
+.footer {
+  flex: 0 0 auto;
+}
+
+/* ══ Header ══════════════════════════════════════════════════════════════ */
+.header {
+  align-items: center;
+  gap: 16px;
+  margin-bottom: clamp(10px, 1.4vh, 16px);
+  padding-bottom: clamp(10px, 1.4vh, 16px);
+  border-bottom: 1px solid var(--hairline);
+}
+
+.header-title-group {
+  gap: 13px;
+}
+
+.header-icon {
+  width: clamp(30px, 4vh, 36px);
+  height: clamp(30px, 4vh, 36px);
+  padding: 7px;
+  border: 1px solid rgba(var(--accent-rgb), 0.35);
+  border-radius: 10px;
+  background: rgba(var(--accent-rgb), 0.14);
+  color: var(--accent);
+}
+
+.header h1 {
+  font-size: clamp(1.15rem, 2.4vh, 1.5rem);
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  color: var(--ink);
+}
+
+.sub {
+  margin-top: 3px;
+  font-size: clamp(0.7rem, 1.4vh, 0.79rem);
+  color: var(--muted);
+}
+
+.header-actions {
+  margin-top: 0;
+  align-items: center;
+  gap: 8px;
+}
+
+.guide-toggle {
+  padding: 9px 13px;
+  border-radius: var(--radius-sm);
+  border-color: var(--border);
+  background: var(--bg-panel);
+  color: var(--ink);
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.guide-toggle:hover,
+.guide-toggle:focus-visible {
+  border-color: rgba(var(--accent-rgb), 0.6);
+  background: rgba(var(--accent-rgb), 0.12);
+  color: var(--accent);
+  transform: none;
+}
+
+.status-pill--calibrated {
+  border-radius: var(--radius-sm);
+  padding: 7px 12px;
+}
+
+/* ══ Status row — one bar, split by a rule, not two floating pills ═══════ */
+.status-row {
+  gap: 0;
+  margin-bottom: clamp(10px, 1.4vh, 14px);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--panel);
+  box-shadow: var(--lift);
+  overflow: hidden;
+}
+
+.status-row .status-bar {
+  flex: 0 0 auto;
+  max-width: 250px;
+  margin: 0;
+  padding: 11px 16px;
+  border: 0;
+  border-right: 1px solid var(--border);
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+.status-row .calibration-banner,
+.status-row .prediction-banner,
+.status-row .status-strip {
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+  animation: none;
+}
+
+.status-row .calibration-banner,
+.status-row .prediction-banner {
+  padding: 9px 16px;
+}
+
+.dot {
+  width: 7px;
+  height: 7px;
+}
+
+.dot.ok { background: var(--calm); box-shadow: 0 0 0 3px rgba(var(--calm-rgb), 0.16); }
+.dot.warn { background: var(--stress); box-shadow: 0 0 0 3px rgba(var(--stress-rgb), 0.16); }
+.dot.bad { background: var(--anxiety); box-shadow: 0 0 0 3px rgba(var(--anxiety-rgb), 0.16); }
+
+.calibration-title,
+.pred-title {
+  font-size: 0.84rem;
+  font-weight: 650;
+  color: var(--ink);
+}
+
+.calibration-message,
+.pred-detail {
+  font-size: 0.76rem;
+  color: var(--muted);
+}
+
+.calibration-status,
+.pred-countdown {
+  border-radius: 999px;
+  font-size: 0.7rem;
+}
+
+/* ══ Cards — state panel left, signals stacked right ═════════════════════ */
+.cards {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: clamp(10px, 1.4vh, 14px);
+}
+
+@media (min-width: 900px) {
+  .cards {
+    grid-template-columns: minmax(0, 1.6fr) minmax(268px, 1fr);
+  }
+}
+
+.side-cards {
+  display: flex;
+  flex-direction: column;
+  gap: clamp(10px, 1.4vh, 14px);
+}
+
+.side-cards .card {
+  flex: 1;
+}
+
+.card {
+  position: relative;
+  min-height: 0;
+  padding: clamp(9px, 1.2vh, 13px) clamp(14px, 1.3vw, 17px);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--panel);
+  box-shadow: var(--lift);
+}
+
+.card h2 {
+  margin: 0 0 clamp(5px, 0.8vh, 8px);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.66rem;
+  font-weight: 600;
+  line-height: 1.1;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+/* ══ State panel ════════════════════════════════════════════════════════
+   Vertical rhythm: eyebrow → dial + word → caption → guidance → fine print.
+   Nothing is trapped inside the circle any more. */
+.state-card {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  /* One subtle wash of the live state colour from the top-left corner. */
+  background:
+    radial-gradient(560px 300px at 0% 0%,
+      rgba(var(--pulse-glow-rgb, var(--muted-rgb)), 0.13), transparent 62%),
+    var(--panel);
+  border-color: rgba(var(--pulse-glow-rgb, var(--muted-rgb)), 0.3);
+  transition: background 0.6s ease, border-color 0.5s ease;
+  animation: none;
+}
+
+.state-card::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: var(--pulse-color, var(--muted));
+  opacity: 0.9;
+}
+
+.state-main {
+  display: flex;
+  align-items: center;
+  gap: clamp(12px, 1.2vw, 16px);
+}
+
+/* On a desktop width the panel is two columns, not four stacked rows: the
+   dial and state word on the left, the guidance on the right of a rule.
+   Laid out with grid areas so no markup has to move. */
+@media (min-width: 900px) {
+  .state-card {
+    display: grid;
+    grid-template-columns: minmax(0, auto) minmax(0, 1fr);
+    grid-template-rows: auto 1fr auto;
+    grid-template-areas:
+      "head head"
+      "main copy"
+      "meta meta";
+    align-items: center;
+    column-gap: clamp(14px, 1.8vw, 24px);
+  }
+
+  .state-card > h2   { grid-area: head; align-self: start; }
+  .state-main        { grid-area: main; }
+  .state-microcopy   { grid-area: copy; }
+  .state-card > .meta { grid-area: meta; align-self: end; }
+
+  .state-microcopy {
+    align-items: center;
+    height: 100%;
+    margin-top: 0;
+    padding: 0 0 0 clamp(14px, 1.8vw, 24px);
+    border-top: 0;
+    border-left: 1px solid var(--hairline);
+  }
+}
+
+/* The dial is now only a dial: an icon, ringed by the calibration arc. */
+.state-dial {
+  position: relative;
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: clamp(46px, 6.4vh, 58px);
+  height: clamp(46px, 6.4vh, 58px);
+  border: 1px solid rgba(var(--pulse-glow-rgb, var(--muted-rgb)), 0.45);
+  border-radius: 50%;
+  background: rgba(var(--pulse-glow-rgb, var(--muted-rgb)), 0.1);
+  color: var(--pulse-color, var(--muted));
+  transition: color 0.45s ease, border-color 0.45s ease, background 0.45s ease;
+}
+
+.state-dial-icon {
+  width: 52%;
+  height: 52%;
+}
+
+.state-card.state-calibrating .state-dial-icon {
+  animation: dial-breathe 1.9s ease-in-out infinite;
+}
+
+@keyframes dial-breathe {
+  0%, 100% { opacity: 0.45; }
+  50%      { opacity: 1; }
+}
+
+.state-ring-progress {
+  position: absolute;
+  inset: -5px;
+  width: calc(100% + 10px);
+  height: calc(100% + 10px);
+  transform: rotate(-90deg);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.3s ease;
+}
+
+.state-card.state-calibrating .state-ring-progress {
+  opacity: 1;
+}
+
+.state-ring-progress-track {
+  stroke: rgba(var(--ink-rgb), 0.08);
+  stroke-width: 4;
+}
+
+.state-ring-progress-fill {
+  stroke: var(--accent);
+  stroke-width: 4;
+}
+
+.state-readout {
+  min-width: 0;
+}
+
+/* The state word: plain, large, unmistakable. */
+.state-readout .state {
+  margin: 0;
+  font-size: clamp(1.45rem, 3.6vh, 2.1rem);
+  font-weight: 700;
+  line-height: 1.04;
+  letter-spacing: -0.015em;
+  color: var(--pulse-color, var(--ink));
+  transition: color 0.45s ease;
+}
+
+.state-readout .state.state--compact {
+  font-size: clamp(1.1rem, 2.9vh, 1.55rem);
+  letter-spacing: 0.01em;
+}
+
+.state-ring-caption {
+  display: none;
+  margin: 4px 0 0;
+  max-width: none;
+  font-size: 0.72rem;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-align: left;
+  text-transform: none;
+  color: var(--muted);
+}
+
+.state-card.state-calm .state-ring-caption--calm,
+.state-card.state-stress .state-ring-caption--stress,
+.state-card.state-anxiety .state-ring-caption--anxiety,
+.state-card.state-recovery .state-ring-caption--recovery,
+.state-card.state-calibrating .state-ring-caption--calibrating {
+  display: block;
+}
+
+/* Guidance sits under a hairline, as a separate thought. */
+.state-microcopy {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: flex-start;
+  min-width: 0;
+  max-width: none;
+  width: auto;
+  margin-top: clamp(11px, 1.6vh, 16px);
+  padding-top: clamp(11px, 1.6vh, 16px);
+  border-top: 1px solid var(--hairline);
+}
+
+.state-microcopy-lines {
+  display: none;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  text-align: left;
+  color: var(--muted);
+  font-size: clamp(0.8rem, 1.6vh, 0.9rem);
+  line-height: 1.5;
+}
+
+.state-microcopy-lines::before {
+  display: none;
+}
+
+.state-card.state-calm .state-microcopy--calm,
+.state-card.state-stress .state-microcopy--stress,
+.state-card.state-anxiety .state-microcopy--anxiety,
+.state-card.state-recovery .state-microcopy--recovery,
+.state-card.state-calibrating .state-microcopy--calibrating {
+  display: flex;
+}
+
+.state-microcopy-lead {
+  font-size: clamp(1.05rem, 2.4vh, 1.35rem);
+  font-weight: 650;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+}
+
+.meta {
+  margin: clamp(8px, 1.1vh, 11px) 0 0;
+  padding-top: clamp(7px, 1vh, 9px);
+  border-top: 1px solid var(--hairline);
+  font-family: var(--font-mono);
+  font-size: 0.67rem;
+  letter-spacing: 0.01em;
+  text-transform: none;
+  color: rgba(var(--muted-rgb), 0.7);
+}
+
+/* One variable drives every state-coloured part of the panel. */
+.state-card.state-calm        { --pulse-color: var(--calm);     --pulse-glow-rgb: var(--calm-rgb); }
+.state-card.state-stress,
+.state-card.state-active      { --pulse-color: var(--stress);   --pulse-glow-rgb: var(--stress-rgb); }
+.state-card.state-anxiety     { --pulse-color: var(--anxiety);  --pulse-glow-rgb: var(--anxiety-rgb); }
+.state-card.state-recovery    { --pulse-color: var(--recovery); --pulse-glow-rgb: var(--recovery-rgb); }
+.state-card.state-calibrating { --pulse-color: var(--accent);   --pulse-glow-rgb: var(--accent-rgb); }
+
+.state-card.state-calm,
+.state-card.state-stress,
+.state-card.state-anxiety,
+.state-card.state-recovery,
+.state-card.state-active,
+.state-card.state-calibrating {
+  border-color: rgba(var(--pulse-glow-rgb), 0.3);
+}
+
+/* ══ Signal cards ═══════════════════════════════════════════════════════ */
+.side-cards .card:nth-child(1) { --signal: var(--hr);  --signal-rgb: var(--hr-rgb); }
+.side-cards .card:nth-child(2) { --signal: var(--gsr); --signal-rgb: var(--gsr-rgb); }
+
+.card-icon {
+  width: 22px;
+  height: 22px;
+  padding: 4px;
+  border-radius: 6px;
+  background: rgba(var(--signal-rgb), 0.14);
+  color: var(--signal);
+}
+
+.metric-block {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  gap: clamp(6px, 0.9vh, 9px);
+  margin: 0;
+}
+
+.metric-top {
+  align-items: center;
+  gap: 8px;
+}
+
+.value {
+  font-size: clamp(1.5rem, 3.4vh, 2rem);
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: -0.03em;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.metric-value .unit {
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+/* Short again: an arrow and one word, no chip chrome around it. */
+.metric-trend {
+  gap: 3px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.metric-trend-arrow {
+  font-size: 0.82rem;
+}
+
+.metric-trend.is-rising  { background: none; color: var(--stress); }
+.metric-trend.is-falling { background: none; color: var(--calm); }
+
+.mini-bar {
+  gap: 4px;
+  flex: 1;
+  min-height: 20px;
+  height: clamp(20px, 4vh, 38px);
+}
+
+.mini-bar span {
+  min-width: 4px;
+  border-radius: 3px;
+  background: rgba(var(--signal-rgb), 0.26);
+  transition: height 0.45s var(--ease);
+}
+
+.mini-bar span:last-child {
+  background: var(--signal);
+}
+
+.range-note {
+  margin: 0;
+  font-size: 0.68rem;
+  line-height: 1.2;
+  color: rgba(var(--muted-rgb), 0.75);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* The cards row is capped so the chart is never the block that gets
+   squeezed: on a 900px viewport this leaves roughly 250px of cards above
+   roughly 390px of chart, rather than the other way round. */
+@media (min-width: 900px) {
+  .cards {
+    /* A definite height, not a cap: the row can neither grow past its share
+       nor be squeezed below what two stacked signal cards need, and the
+       chart takes everything that is left. max() is the content floor,
+       min() the ceiling that keeps the chart the larger block. */
+    flex: 0 0 auto;
+    min-height: 0;
+    height: max(256px, min(28vh, 268px));
+    /* minmax(0, 1fr) bounds the row by the container instead of letting it
+       size to max-content — without this the cards keep their natural height
+       and simply get clipped by the cap. */
+    grid-template-rows: minmax(0, 1fr);
+  }
+
+  .side-cards {
+    min-height: 0;
+  }
+
+  .side-cards .card,
+  .state-card {
+    min-height: 0;
+  }
+}
+
+/* ══ Chart ══════════════════════════════════════════════════════════════ */
+/* The heading is lifted out of flow so this element's content box is exactly
+   the plot area — Chart.js measures that box, so the canvas fills it without
+   spilling past the card's bottom edge. */
+.chart-wrap {
+  position: relative;
+  flex: 1 1 0;
+  height: auto;
+  min-height: 150px;
+  margin-top: clamp(10px, 1.4vh, 14px);
+  padding: clamp(26px, 3.4vh, 32px) 14px clamp(6px, 1vh, 10px);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--panel);
+  box-shadow: var(--lift);
+}
+
+.chart-wrap h2 {
+  position: absolute;
+  top: clamp(9px, 1.3vh, 12px);
+  left: 15px;
+  right: 15px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 0.66rem;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.chart-wrap h2::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: var(--calm);
+  animation: live-blink 2.4s ease-in-out infinite;
+}
+
+@keyframes live-blink {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.25; }
+}
+
+.chart-wrap canvas {
+  display: block;
+  max-height: 100%;
+}
+
+/* ══ Banners, buttons, bottom chrome ════════════════════════════════════ */
+.breathing-prompt,
+.sensor-warning {
+  margin-bottom: clamp(9px, 1.3vh, 13px);
+  padding: 10px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--panel);
+  box-shadow: var(--lift);
+  animation: none;
+}
+
+.breathing-prompt {
+  border-color: rgba(var(--calm-rgb), 0.28);
+}
+
+.btn {
+  border-radius: var(--radius-sm);
+  font-size: 0.79rem;
+}
+
+.btn-primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #14101F;
+}
+
+.btn-primary:hover {
+  background: #B9A3FF;
+  border-color: #B9A3FF;
+}
+
+.breathing-fab {
+  width: 50px;
+  height: 50px;
+  font-size: 1.3rem;
+  background: var(--accent);
+  color: #14101F;
+  box-shadow: 0 10px 26px -10px rgba(var(--accent-rgb), 0.9);
+}
+
+.breathing-fab-label {
+  border-color: var(--border);
+  background: var(--bg-panel);
+  font-size: 0.74rem;
+}
+
+.instructions {
+  margin-top: clamp(8px, 1.2vh, 12px);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-panel);
+  overflow: hidden;
+}
+
+.instructions-toggle {
+  padding: 10px 15px;
+  font-size: 0.77rem;
+  color: var(--muted);
+}
+
+/* Open, it takes only the height left over and scrolls inside itself. */
+.instructions[open] {
+  display: flex;
+  flex-direction: column;
+  flex: 0 1 auto;
+  min-height: 0;
+}
+
+.instructions[open] .instr-body {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  min-height: 0;
+}
+
+.layout:has(.instructions[open]) .chart-wrap {
+  min-height: 110px;
+}
+
+.footer {
+  margin-top: clamp(8px, 1.2vh, 12px);
+  padding-top: clamp(8px, 1.2vh, 12px);
+  border-top: 1px solid var(--hairline);
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+  color: rgba(var(--muted-rgb), 0.65);
+}
+
+/* ══ Overlays ═══════════════════════════════════════════════════════════ */
+.breathing-modal,
+.recovery-card,
+.guide-drawer {
+  border: 1px solid var(--border);
+  background: var(--bg-panel);
+}
+
+.breathing-modal,
+.recovery-card {
+  border-radius: var(--radius);
+  box-shadow: 0 40px 90px -30px rgba(0, 0, 0, 0.95);
+}
+
+.eyebrow {
+  letter-spacing: 0.16em;
+  color: var(--muted);
+}
+
+/* ══ Narrow: single column, page scrolls again ══════════════════════════ */
+@media (max-width: 899px) {
+  .layout {
+    display: block;
+    height: auto;
+    min-height: 100vh;
+  }
+
+  .chart-wrap {
+    height: clamp(230px, 32vh, 320px);
+  }
+
+  .status-row {
+    flex-direction: column;
+    overflow: visible;
+  }
+
+  .status-row .status-bar {
+    max-width: none;
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+  }
+}
+
+/* ── Short laptop screens (roughly 1366x768 at 100% zoom) ────────────────
+   A vertical stack costs two card heights, so on a short viewport every
+   block gives up a little to keep the chart readable rather than letting
+   one element crush it. ────────────────────────────────────────────────── */
+@media (max-height: 820px) and (min-width: 900px) {
+  .card {
+    padding: 10px 14px;
+  }
+
+  .card h2 {
+    margin-bottom: 6px;
+    font-size: 0.62rem;
+  }
+
+  .value {
+    font-size: clamp(1.35rem, 3.4vh, 1.7rem);
+  }
+
+  .metric-block {
+    gap: 7px;
+  }
+
+  .mini-bar {
+    min-height: 18px;
+    height: clamp(18px, 3.6vh, 28px);
+  }
+
+  .range-note {
+    font-size: 0.63rem;
+  }
+
+  .state-main {
+    gap: 12px;
+  }
+
+  .state-dial {
+    width: 40px;
+    height: 40px;
+  }
+
+  .state-readout .state {
+    font-size: clamp(1.3rem, 3.4vh, 1.7rem);
+  }
+
+  .state-microcopy {
+    margin-top: 9px;
+    padding-top: 9px;
+  }
+
+  .state-microcopy-lead {
+    font-size: clamp(0.95rem, 2.1vh, 1.1rem);
+  }
+
+  .state-microcopy-lines {
+    font-size: 0.78rem;
+    line-height: 1.4;
+  }
+
+  .meta {
+    margin-top: 8px;
+    padding-top: 7px;
+  }
+
+  .chart-wrap {
+    min-height: 160px;
+    padding-top: 28px;
+  }
+
+  .instructions-toggle {
+    padding: 7px 14px;
+  }
+
+  /* Everything in the cards is smaller here, so the row needs less. */
+  .cards {
+    height: 232px;
+  }
+}
+
+/* ── Very short screens (roughly 1366x768 at 100% zoom) ──────────────────
+   The last step down: the signal cards shed enough type and sparkline to
+   fit in under 100px each, which is what keeps the chart usable here. ── */
+@media (max-height: 680px) and (min-width: 900px) {
+  .card {
+    padding: 8px 12px;
+  }
+
+  .card h2 {
+    margin-bottom: 4px;
+    font-size: 0.58rem;
+  }
+
+  .value {
+    font-size: 1.25rem;
+  }
+
+  .metric-block {
+    gap: 5px;
+  }
+
+  .mini-bar {
+    min-height: 14px;
+    height: clamp(14px, 2.6vh, 22px);
+  }
+
+  .range-note {
+    font-size: 0.6rem;
+  }
+
+  .cards {
+    height: 198px;
+  }
+
+  .chart-wrap {
+    min-height: 150px;
+  }
+}
+
+/* Very short viewports: stop compressing, let the page scroll. */
+@media (max-height: 580px) {
+  .layout {
+    height: auto;
+    min-height: 100vh;
+  }
+
+  .chart-wrap {
+    flex: 0 0 auto;
+    min-height: 200px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chart-wrap h2::before,
+  .state-card.state-calibrating .state-dial-icon {
+    animation: none !important;
+  }
+}
