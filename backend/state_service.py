@@ -4,7 +4,9 @@ Orchestrates pipeline, features, rules, ML fusion, smoothing, CSV logging, and s
 from __future__ import annotations
 
 import csv
+import json
 import logging
+import os
 import threading
 import time
 from dataclasses import dataclass
@@ -17,13 +19,15 @@ from backend.features import BaselineTracker, compute_features
 from backend.fusion import FusionEngine
 from backend.ml_predictor import MlPredictor
 from backend.alert_system import AlertSystem
-from backend.paths import logs_dir, model_path, scaler_path
+from backend.paths import logs_dir, model_path, scaler_path, sessions_dir
 from backend.pattern_detector import PatternDetector
 from backend.pipeline import DataPipeline
 from backend.prediction_smoother import PredictionSmoother
 from backend.rules import RulesEngine
+from backend.session_recorder import SessionRecorder
 from backend.session_manager import (
     PHASE_CALIBRATING,
+    PHASE_ENDED,
     PHASE_IDLE,
     SessionManager,
 )
@@ -31,6 +35,23 @@ from backend.state_machine import StateMachine
 from backend.trend_predictor import TrendPrediction, TrendPredictor
 
 LOG = logging.getLogger(__name__)
+
+# CSV schema v2 (PLAN.md section 3.7). Changing this list requires a log rotation,
+# which _rotate_csv_if_stale() performs on startup.
+CSV_FIELDNAMES = [
+    "timestamp_iso",
+    "session_id",
+    "session_phase",
+    "hr",
+    "gsr",
+    "raw_line",
+    "rule_state",
+    "ml_state",
+    "fused_state",
+    "final_state",
+    "connection",
+    "exercise_event",
+]
 
 
 @dataclass
@@ -80,6 +101,9 @@ class AnxietyStateService:
         self.alert_system = AlertSystem()
         self.trend_predictor = TrendPredictor(config)
         self.sessions = SessionManager()
+        self._recorder: Optional[SessionRecorder] = None
+        self._last_live_summary: Optional[Dict[str, Any]] = None
+        self._last_checkpoint_ts = 0.0
         self._prev_rule_state: Optional[str] = None
         self._latest_hr: Optional[float] = None
         self._latest_gsr: Optional[float] = None
@@ -132,25 +156,48 @@ class AnxietyStateService:
 
     def _open_csv(self) -> None:
         self._csv_path.parent.mkdir(parents=True, exist_ok=True)
+        self._rotate_csv_if_stale()
         new_file = not self._csv_path.is_file()
         self._csv_file = open(self._csv_path, "a", newline="", encoding="utf-8")
-        fields = [
-            "timestamp_iso",
-            "hr",
-            "gsr",
-            "raw_line",
-            "rule_state",
-            "ml_state",
-            "fused_state",
-            "final_state",
-            "connection",
-            "exercise_event",
-        ]
+        fields = list(CSV_FIELDNAMES)
         self._csv_writer = csv.DictWriter(self._csv_file, fieldnames=fields)
         if new_file:
             self._csv_writer.writeheader()
             self._csv_file.flush()
         LOG.info("CSV log: %s", self._csv_path)
+
+    def _csv_session_id(self) -> str:
+        """Session id for a CSV row: blank outside a recording phase (PLAN.md section 3.7)."""
+        st = self.sessions.state
+        return st.id if (st.recording and st.id) else ""
+
+    def _rotate_csv_if_stale(self) -> None:
+        """Retire a log whose header predates the current schema (PLAN.md section 3.7).
+
+        Appending new columns to an existing file would silently misalign every
+        earlier row, so the old log is renamed and a fresh one is started.
+        """
+        if not self._csv_path.is_file():
+            return
+        expected = ",".join(CSV_FIELDNAMES)
+        try:
+            with open(self._csv_path, "r", encoding="utf-8") as fh:
+                first_line = fh.readline().strip()
+        except OSError as e:
+            LOG.warning("Could not read CSV header, leaving log untouched: %s", e)
+            return
+        if first_line == expected:
+            return
+        target = self._csv_path.with_name("physio_log.pre_sessions.csv")
+        suffix = 0
+        while target.exists():
+            suffix += 1
+            target = self._csv_path.with_name("physio_log.pre_sessions-%d.csv" % suffix)
+        try:
+            self._csv_path.rename(target)
+            LOG.info("Rotated pre-session CSV log to %s", target.name)
+        except OSError as e:
+            LOG.warning("Could not rotate CSV log: %s", e)
 
     def log_exercise_event(self, event: str) -> None:
         with self._lock:
@@ -161,6 +208,8 @@ class AnxietyStateService:
                     "timestamp_iso": datetime.utcnow().isoformat() + "Z",
                     "hr": self._snapshot.hr if self._snapshot.hr is not None else "",
                     "gsr": self._snapshot.gsr if self._snapshot.gsr is not None else "",
+                    "session_id": self._csv_session_id(),
+                    "session_phase": self.sessions.phase,
                     "raw_line": f"EXERCISE_{event.upper()}",
                     "rule_state": self._snapshot.rule_state or "",
                     "ml_state": self._snapshot.ml_state or "",
@@ -215,6 +264,8 @@ class AnxietyStateService:
                 return
             out = self.pipeline.push(sample.hr, sample.gsr)
             if out is None:
+                if self._recorder is not None and self.sessions.state.evaluating:
+                    self._recorder.note_rejected_sample()
                 self._maybe_log_csv(sample, None, None, None, None, None, None, None)
                 return
             hr, gsr = out
@@ -222,6 +273,15 @@ class AnxietyStateService:
             self.baseline.update_with_sample(now, hr, gsr)
             if self.baseline.is_ready() and self.sessions.phase == PHASE_CALIBRATING:
                 self.sessions.mark_calibrated(now)
+                if self._recorder is not None:
+                    self._recorder.note_calibrated(
+                        now,
+                        self.baseline.baseline_hr,
+                        self.baseline.baseline_gsr,
+                        self.baseline.calibration_method,
+                        self.baseline.calibration_locked_after_s(),
+                        self.sessions.state.calibration_attempts,
+                    )
             self._latest_hr = hr
             self._latest_gsr = gsr
             window = self.pipeline.window_points()
@@ -239,6 +299,11 @@ class AnxietyStateService:
                 # Use the authoritative is_calibrated flag (set once after
                 # the calibration window closes, not just when values appear).
                 self._snapshot.calibrated = self.baseline.is_ready()
+                # NOTE(plan): only count rejects once monitoring has begun. Every
+                # sample during CALIBRATING takes this path by design, and counting
+                # those would report a healthy session as mostly-rejected data.
+                if self._recorder is not None and self.sessions.state.evaluating:
+                    self._recorder.note_rejected_sample()
                 self._maybe_log_csv(sample, hr, gsr, None, None, None, None, None)
                 return
             try:
@@ -318,6 +383,24 @@ class AnxietyStateService:
                 final_state,
                 self._snapshot.connection,
             )
+            # Recording is deliberately outside the evaluation try/except above:
+            # a recorder fault must never affect live monitoring (PLAN.md F-O).
+            if self._recorder is not None:
+                try:
+                    self._recorder.observe(
+                        now=now,
+                        phase=self.sessions.phase,
+                        hr=hr, gsr=gsr,
+                        state=final_state, rule_state=rule_state, ml_state=ml_state,
+                        fused_state=self._snapshot.fused_state,
+                        fusion_source=self._snapshot.fusion_source,
+                        pattern=pattern_type, alert=alert_level,
+                        features=feat_map, prediction=self._snapshot.prediction,
+                        connection=self._snapshot.connection,
+                    )
+                except Exception as e:
+                    LOG.debug("recorder observe: %s", e)
+                self._maybe_checkpoint(now)
 
     def _maybe_log_csv(
         self,
@@ -339,6 +422,8 @@ class AnxietyStateService:
         self._csv_writer.writerow(
             {
                 "timestamp_iso": datetime.utcnow().isoformat() + "Z",
+                "session_id": self._csv_session_id(),
+                "session_phase": self.sessions.phase,
                 "hr": hr if hr is not None else "",
                 "gsr": gsr if gsr is not None else "",
                 "raw_line": sample.raw_line,
@@ -351,6 +436,40 @@ class AnxietyStateService:
             }
         )
         self._csv_file.flush()
+
+    def _maybe_checkpoint(self, now: float) -> None:
+        """Write a .partial.json checkpoint at most every checkpoint_interval_s.
+
+        NOTE(plan): the write happens under the service lock. The file is small
+        (<100 KB) and written via tmp+replace, so the added hold time is one
+        buffered write per interval.
+        """
+        if self._recorder is None:
+            return
+        if now - self._last_checkpoint_ts < self._cfg.session.checkpoint_interval_s:
+            return
+        self._last_checkpoint_ts = now
+        try:
+            report = self._recorder.build_report(
+                now,
+                status="partial",
+                end_reason=None,
+                terminal_state=self._snapshot.state,
+                terminal_phase=self.sessions.phase,
+            )
+            self._write_json_atomic(
+                sessions_dir() / (self._recorder.session_id + ".partial.json"), report
+            )
+        except Exception as e:
+            LOG.debug("session checkpoint: %s", e)
+
+    @staticmethod
+    def _write_json_atomic(path, payload: Dict[str, Any]) -> None:
+        """Write JSON via a tmp file + os.replace so readers never see a partial write."""
+        tmp = path.with_suffix(path.suffix + ".tmp")
+        with open(tmp, "w", encoding="utf-8") as fh:
+            json.dump(payload, fh, indent=2)
+        os.replace(tmp, path)
 
     def get_snapshot(self) -> DashboardSnapshot:
         with self._lock:
@@ -402,9 +521,15 @@ class AnxietyStateService:
             "monitored_s": round(st.monitored_s(now), 1),
             "recording": st.recording,
             "evaluating": st.evaluating,
-            "calibration": self._calibration_dict(now),   # returns None until P2
-            "live": None,                                  # filled in P3
+            "calibration": self._calibration_dict(now),
+            "live": self._live_dict(now),
         }
+
+    def _live_dict(self, now: float) -> Optional[Dict[str, Any]]:
+        """Running session summary; the last one survives into ENDED for the UI."""
+        if self._recorder is not None:
+            self._last_live_summary = self._recorder.live_summary(now)
+        return self._last_live_summary
 
     def _calibration_dict(self, now: float) -> Optional[Dict[str, Any]]:
         """Calibration telemetry for the `session` block. Caller holds the lock."""
@@ -466,16 +591,53 @@ class AnxietyStateService:
             # person's values are never shown against a new session.
             self._snapshot.baseline_hr = None
             self._snapshot.baseline_gsr = None
+            self._recorder = SessionRecorder(
+                session_id=st.id,
+                label=st.label,
+                started_at=now,
+                target_calibration_s=self.baseline.calibration_target_s,
+            )
+            self._last_live_summary = None
+            self._last_checkpoint_ts = now
             return {"ok": True, "session_id": st.id, "phase": st.phase, "label": st.label}
 
     def end_session(self) -> Dict[str, Any]:
-        """End the active session. Returns {"ok": bool, ...}."""
+        """End the active session, write its report, and return the reliability grade."""
         with self._lock:
-            st = self.sessions.end(time.time())
+            now = time.time()
+            st = self.sessions.end(now)
             if st is None:
                 return {"ok": False, "error": "no_active_session"}
-            # P3 attaches report finalization here.
-            return {"ok": True, "session_id": st.id, "reliability": None}
+            recorder = self._recorder
+            self._recorder = None
+            report = None
+            if recorder is not None:
+                try:
+                    report = recorder.build_report(
+                        now,
+                        status="final",
+                        end_reason=st.end_reason,
+                        terminal_state=self._snapshot.state,
+                        terminal_phase=PHASE_ENDED,
+                    )
+                    self._last_live_summary = recorder.live_summary(now)
+                except Exception as e:
+                    LOG.error("Could not build session report for %s: %s", st.id, e)
+            session_id = st.id
+
+        # File I/O outside the lock: the live pipeline must not wait on the disk.
+        reliability = None
+        if report is not None:
+            reliability = report["quality"]["reliability"]
+            try:
+                self._write_json_atomic(sessions_dir() / (session_id + ".json"), report)
+            except Exception as e:
+                LOG.error("Could not write session report %s: %s", session_id, e)
+            try:
+                (sessions_dir() / (session_id + ".partial.json")).unlink()
+            except OSError:
+                pass
+        return {"ok": True, "session_id": session_id, "reliability": reliability}
 
     def restart_calibration(self) -> Dict[str, Any]:
         """Restart baseline measurement without ending the session."""
@@ -486,5 +648,7 @@ class AnxietyStateService:
             self.baseline.reset()
             self._snapshot.calibrated = False
             self._snapshot.features = None
+            if self._recorder is not None:
+                self._recorder.note_calibration_restart()
             return {"ok": True, "session_id": self.sessions.state.id,
                     "attempts": self.sessions.state.calibration_attempts}
