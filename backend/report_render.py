@@ -166,6 +166,8 @@ def _intervention_sentence(item: Dict[str, Any]) -> str:
         sentence += " (stopped early)"
     elif completion == "aborted_by_session_end":
         sentence += " (still running when the session ended)"
+    elif completion is None:
+        sentence += " (no planned duration was recorded, so it is not known whether it ran in full)"
     sentence += "."
 
     change = item.get("hr_change_bpm")
@@ -416,7 +418,8 @@ def _interventions_html(interventions: Optional[List[Dict[str, Any]]]) -> str:
             ("Planned / actual", _cell("%s / %s" % (
                 _fmt_duration(item.get("planned_duration_s")),
                 _fmt_duration(item.get("actual_duration_s"))))),
-            ("Completion", _cell(item.get("completion"))),
+            ("Completion", _cell(item.get("completion"),
+                                  "no planned duration was recorded for this exercise")),
             ("Cycles completed", _cell(item.get("cycles_completed"))),
             ("State at start / end", _cell(
                 "%s / %s" % (item.get("state_at_start"), item.get("state_at_end"))

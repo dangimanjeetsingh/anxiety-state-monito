@@ -160,6 +160,16 @@ class SessionRecorder:
         self._prev_alert: Optional[str] = None
         self._open_run: Optional[Dict[str, Any]] = None
 
+        # --- intervention bookkeeping ---
+        self._last_obs: Dict[str, Any] = {}
+        self._active_intervention: Optional[int] = None
+        self._iv_hr_sum = 0.0
+        self._iv_hr_n = 0
+        self._recovery_index: Optional[int] = None
+        self._recovery_until: Optional[float] = None
+        self._recovery_start_rel: Optional[float] = None
+        self._recovery_obs = 0
+
     # ------------------------------------------------------------------
     # Ingestion
     # ------------------------------------------------------------------
@@ -299,6 +309,49 @@ class SessionRecorder:
             })
         self._prev_prediction_active = active
 
+        # --- interventions: the sample stream is the only durable source ---
+        self._last_obs = {
+            "hr": hr, "gsr": gsr, "state": state,
+            "stress_index": fv.get("stress_index"), "rel": rel, "now": now,
+        }
+        if self._active_intervention is not None and hr is not None:
+            self._iv_hr_sum += hr
+            self._iv_hr_n += 1
+        self._observe_recovery(now, rel, hr, state)
+
+    def _observe_recovery(self, now: float, rel: float, hr: Optional[float],
+                          state: Optional[str]) -> None:
+        """Track the post-intervention observation window. Records what happened, only."""
+        if self._recovery_until is None or self._recovery_index is None:
+            return
+        item = self._intervention(self._recovery_index)
+        if item is None:
+            self._clear_recovery()
+            return
+        self._recovery_obs += 1
+        if state == "RECOVERY":
+            item["entered_recovery_within_window"] = True
+        if state == "CALM" and not item.get("returned_to_calm_within_window"):
+            item["returned_to_calm_within_window"] = True
+            start_rel = self._recovery_start_rel if self._recovery_start_rel is not None else rel
+            item["time_to_calm_s"] = round(max(0.0, rel - start_rel), 1)
+        if now >= self._recovery_until:
+            item["hr_at_plus_60s"] = _round(hr)
+            item["recovery_data"] = ("available" if self._recovery_obs >= 5 else "unavailable")
+            self._clear_recovery()
+
+    def _clear_recovery(self) -> None:
+        self._recovery_until = None
+        self._recovery_index = None
+        self._recovery_start_rel = None
+        self._recovery_obs = 0
+
+    def _intervention(self, index: Optional[int]) -> Optional[Dict[str, Any]]:
+        for item in self.interventions:
+            if item.get("index") == index:
+                return item
+        return None
+
     def note_rejected_sample(self) -> None:
         """A sample arrived but produced no evaluation (out of range, or window not ready)."""
         self.samples_rejected += 1
@@ -325,8 +378,16 @@ class SessionRecorder:
 
     def intervention_start(self, now: float, technique: str,
                            planned_duration_s: Optional[int]) -> int:
-        """Open an intervention record and return its 1-based index."""
-        # NOTE(plan): P3 records the bare event; P5 adds the physiological metrics.
+        """Open an intervention record and return its 1-based index.
+
+        Idempotent: a second start while one is already running returns the
+        running index rather than opening an overlapping record.
+        """
+        if self._active_intervention is not None:
+            return self._active_intervention
+        # A new exercise ends the previous one's observation window early.
+        self._finalize_recovery_window(truncated=True)
+        obs = self._last_obs
         index = len(self.interventions) + 1
         self._append(self.interventions, {
             "index": index,
@@ -336,24 +397,102 @@ class SessionRecorder:
             "actual_duration_s": None,
             "completion": None,
             "cycles_completed": None,
+            "state_at_start": obs.get("state"),
+            "state_at_end": None,
+            "hr_at_start": _round(obs.get("hr")),
+            "hr_at_end": None,
+            "hr_mean_during": None,
+            "hr_at_plus_60s": None,
+            "hr_change_bpm": None,
+            "hr_change_pct": None,
+            "gsr_at_start": _round(obs.get("gsr")),
+            "gsr_at_end": None,
+            "gsr_change": None,
+            "stress_index_at_start": _round(obs.get("stress_index")),
+            "stress_index_at_end": None,
+            "entered_recovery_within_window": False,
+            "returned_to_calm_within_window": False,
+            "time_to_calm_s": None,
+            "recovery_data": None,
         })
+        if len(self.interventions) < index:      # event cap reached
+            return index
+        self._active_intervention = index
+        self._iv_hr_sum = 0.0
+        self._iv_hr_n = 0
         return index
 
     def intervention_stop(self, now: float, cycles_completed: Optional[int],
                           aborted: bool = False) -> None:
-        """Close the most recent open intervention."""
-        # NOTE(plan): P3 closes the event only; P5 adds recovery metrics.
-        for item in reversed(self.interventions):
-            if item.get("completion") is None:
-                started_rel = item.get("started_at_rel") or 0.0
-                item["actual_duration_s"] = round(max(0.0, self.rel(now) - started_rel), 1)
-                item["cycles_completed"] = cycles_completed
-                item["completion"] = "aborted_by_session_end" if aborted else "completed"
-                return
+        """Close the active intervention and open its observation window.
+
+        Idempotent: a stop with nothing running is a no-op, so the browser's
+        duplicate stop on a natural finish cannot corrupt the record.
+        """
+        item = self._intervention(self._active_intervention)
+        if item is None:
+            return
+        obs = self._last_obs
+        started_rel = item.get("started_at_rel") or 0.0
+        rel = self.rel(now)
+        actual = round(max(0.0, rel - started_rel), 1)
+        planned = item.get("planned_duration_s")
+
+        item["actual_duration_s"] = actual
+        if cycles_completed is not None:
+            item["cycles_completed"] = cycles_completed
+        item["state_at_end"] = obs.get("state")
+        item["hr_at_end"] = _round(obs.get("hr"))
+        item["gsr_at_end"] = _round(obs.get("gsr"))
+        item["stress_index_at_end"] = _round(obs.get("stress_index"))
+        item["hr_mean_during"] = _round(self._iv_hr_sum / self._iv_hr_n) if self._iv_hr_n else None
+        if item["hr_at_start"] is not None and item["hr_at_end"] is not None:
+            change = item["hr_at_end"] - item["hr_at_start"]
+            item["hr_change_bpm"] = _round(change)
+            if item["hr_at_start"]:
+                item["hr_change_pct"] = _round(change / item["hr_at_start"] * 100.0)
+        if item["gsr_at_start"] is not None and item["gsr_at_end"] is not None:
+            item["gsr_change"] = _round(item["gsr_at_end"] - item["gsr_at_start"])
+
+        if aborted:
+            item["completion"] = "aborted_by_session_end"
+        elif planned:
+            item["completion"] = "stopped_early" if actual < planned * 0.9 else "completed"
+        else:
+            # NOTE(plan): completion is a claim about running the planned length.
+            # With no planned duration recorded (the legacy /session/exercise alias
+            # sends none) that claim cannot be made, so it stays null with an
+            # `unavailable` entry rather than defaulting to "completed".
+            item["completion"] = None
+
+        self._active_intervention = None
+        self._iv_hr_sum = 0.0
+        self._iv_hr_n = 0
+        if aborted:
+            # No window to observe: the session is over.
+            item["recovery_data"] = "unavailable"
+            return
+        self._recovery_index = item["index"]
+        self._recovery_until = now + RECOVERY_WINDOW_S
+        self._recovery_start_rel = rel
+        self._recovery_obs = 0
+
+    def _finalize_recovery_window(self, truncated: bool) -> None:
+        """Close an observation window that never ran its full length. Never extrapolates."""
+        item = self._intervention(self._recovery_index)
+        if item is not None and item.get("recovery_data") is None:
+            item["hr_at_plus_60s"] = None
+            item["recovery_data"] = ("truncated" if (truncated and self._recovery_obs >= 5)
+                                     else "unavailable")
+        self._clear_recovery()
+
+    @property
+    def intervention_count(self) -> int:
+        return len(self.interventions)
 
     @property
     def intervention_active(self) -> bool:
-        return any(item.get("completion") is None for item in self.interventions)
+        return self._active_intervention is not None
 
     # ------------------------------------------------------------------
     # Derived values
@@ -453,6 +592,9 @@ class SessionRecorder:
                      terminal_state: Optional[str], terminal_phase: str) -> Dict[str, Any]:
         """Assemble the report dict (PLAN.md section 3.4)."""
         from backend.report_render import build_narrative   # local: avoids an import cycle
+        if status != "partial":
+            # An open window at session end is reported as incomplete, not guessed at.
+            self._finalize_recovery_window(truncated=True)
         monitored = self.monitored_duration_s(now)
         calibration_s = self.calibration_duration_s(now)
         coverage = self.coverage_pct(now)
@@ -500,6 +642,16 @@ class SessionRecorder:
             "completed": self.baseline_completed,
         }
 
+        for item in self.interventions:
+            closed = item.get("actual_duration_s") is not None
+            if closed and item.get("recovery_data") in ("truncated", "unavailable") \
+                    and item.get("hr_at_plus_60s") is None:
+                unavailable["interventions[%d].hr_at_plus_60s" % item["index"]] = (
+                    "session ended before the 60 s recovery window completed")
+            if closed and item.get("completion") is None:
+                unavailable["interventions[%d].completion" % item["index"]] = (
+                    "no planned duration was recorded for this exercise")
+
         report: Dict[str, Any] = {
             "schema_version": 1,
             "status": status,
@@ -507,11 +659,7 @@ class SessionRecorder:
             "quality": quality,
             "baseline": baseline,
             "interventions": list(self.interventions),
-            "intervention_summary": {
-                "count": len(self.interventions),
-                "n_with_hr_reduction": None,
-                "median_hr_change_bpm": None,
-            },
+            "intervention_summary": self._intervention_summary(),
             "unavailable": unavailable,
             "disclaimer": DISCLAIMER,
         }
@@ -548,6 +696,16 @@ class SessionRecorder:
     # ------------------------------------------------------------------
     # Section builders
     # ------------------------------------------------------------------
+
+    def _intervention_summary(self) -> Dict[str, Any]:
+        """Counts only. How HR moved is reported; why it moved is not claimed."""
+        changes = [i["hr_change_bpm"] for i in self.interventions
+                   if i.get("hr_change_bpm") is not None]
+        return {
+            "count": len(self.interventions),
+            "n_with_hr_reduction": sum(1 for c in changes if c < 0) if changes else 0,
+            "median_hr_change_bpm": _round(statistics.median(changes)) if changes else None,
+        }
 
     def _physiology(self, unavailable: Dict[str, str]) -> Dict[str, Any]:
         if self.hr_n == 0:

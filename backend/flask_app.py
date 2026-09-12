@@ -67,6 +67,22 @@ def create_app(service: "AnxietyStateService") -> Flask:
             return jsonify({"error": res.get("error")}), 409
         return jsonify({"session_id": res["session_id"], "attempts": res["attempts"]})
 
+    @app.route("/session/intervention", methods=["POST"])
+    def session_intervention():
+        payload = request.get_json(silent=True) or {}
+        event = str(payload.get("event", "")).lower()
+        if event not in ("start", "stop"):
+            return jsonify({"error": "invalid_event"}), 400
+        res = service.log_intervention(
+            event,
+            technique=str(payload.get("technique") or "box_4_4_4_4"),
+            planned_duration_s=payload.get("planned_duration_s"),
+            cycles_completed=payload.get("cycles_completed"),
+        )
+        if not res.get("ok"):
+            return jsonify({"error": res.get("error")}), 409
+        return jsonify({"status": "ok", "index": res.get("index")})
+
     @app.route("/stream")
     def stream():
         """Server-Sent Events: one JSON payload per second."""

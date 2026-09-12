@@ -200,26 +200,30 @@ class AnxietyStateService:
             LOG.warning("Could not rotate CSV log: %s", e)
 
     def log_exercise_event(self, event: str) -> None:
-        with self._lock:
-            if self._csv_writer is None:
-                return
-            self._csv_writer.writerow(
-                {
-                    "timestamp_iso": datetime.utcnow().isoformat() + "Z",
-                    "hr": self._snapshot.hr if self._snapshot.hr is not None else "",
-                    "gsr": self._snapshot.gsr if self._snapshot.gsr is not None else "",
-                    "session_id": self._csv_session_id(),
-                    "session_phase": self.sessions.phase,
-                    "raw_line": f"EXERCISE_{event.upper()}",
-                    "rule_state": self._snapshot.rule_state or "",
-                    "ml_state": self._snapshot.ml_state or "",
-                    "fused_state": self._snapshot.fused_state or "",
-                    "final_state": self._snapshot.state or "",
-                    "connection": self._snapshot.connection,
-                    "exercise_event": event,
-                }
-            )
-            self._csv_file.flush()
+        """Back-compat entry point for POST /session/exercise (PLAN.md section 3.9)."""
+        self.log_intervention(str(event).lower())
+
+    def _write_exercise_csv_row_locked(self, event: str) -> None:
+        """Write the exercise marker row. Caller must hold the lock."""
+        if self._csv_writer is None:
+            return
+        self._csv_writer.writerow(
+            {
+                "timestamp_iso": datetime.utcnow().isoformat() + "Z",
+                "hr": self._snapshot.hr if self._snapshot.hr is not None else "",
+                "gsr": self._snapshot.gsr if self._snapshot.gsr is not None else "",
+                "session_id": self._csv_session_id(),
+                "session_phase": self.sessions.phase,
+                "raw_line": f"EXERCISE_{event.upper()}",
+                "rule_state": self._snapshot.rule_state or "",
+                "ml_state": self._snapshot.ml_state or "",
+                "fused_state": self._snapshot.fused_state or "",
+                "final_state": self._snapshot.state or "",
+                "connection": self._snapshot.connection,
+                "exercise_event": event,
+            }
+        )
+        self._csv_file.flush()
 
     def _close_csv(self) -> None:
         if self._csv_file:
@@ -613,6 +617,8 @@ class AnxietyStateService:
             report = None
             if recorder is not None:
                 try:
+                    if recorder.intervention_active:
+                        recorder.intervention_stop(now, cycles_completed=None, aborted=True)
                     report = recorder.build_report(
                         now,
                         status="final",
@@ -638,6 +644,22 @@ class AnxietyStateService:
             except OSError:
                 pass
         return {"ok": True, "session_id": session_id, "reliability": reliability}
+
+    def log_intervention(self, event: str, *, technique: str = "box_4_4_4_4",
+                         planned_duration_s: Optional[int] = None,
+                         cycles_completed: Optional[int] = None) -> Dict[str, Any]:
+        """Record the start or stop of a breathing exercise against the session."""
+        with self._lock:
+            if not self.sessions.state.recording or self._recorder is None:
+                return {"ok": False, "error": "no_active_session"}
+            now = time.time()
+            if event == "start":
+                idx = self._recorder.intervention_start(now, technique, planned_duration_s)
+            else:
+                self._recorder.intervention_stop(now, cycles_completed)
+                idx = self._recorder.intervention_count
+            self._write_exercise_csv_row_locked(event)
+            return {"ok": True, "index": idx}
 
     def restart_calibration(self) -> Dict[str, Any]:
         """Restart baseline measurement without ending the session."""

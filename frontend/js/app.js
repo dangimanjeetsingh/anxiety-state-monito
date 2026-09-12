@@ -408,6 +408,11 @@ function setCalibrationStatus(d) {
     // The calibrated pill describes a live baseline; there is none between sessions.
     if (CALIBRATED_PILL) CALIBRATED_PILL.style.display = "none";
     if (CAL_RESTART_BTN) CAL_RESTART_BTN.hidden = true;
+    // A breathing exercise is only meaningful against a running session.
+    if (MANUAL_BREATHE_BTN) {
+      MANUAL_BREATHE_BTN.disabled = true;
+      MANUAL_BREATHE_BTN.title = "Start a session to log a breathing exercise";
+    }
     return;
   }
 
@@ -417,6 +422,10 @@ function setCalibrationStatus(d) {
   const calibrated = d.calibrated === true;
   const isMock = conn === "mock";
   const cal = (d.session && d.session.calibration) || null;
+  if (MANUAL_BREATHE_BTN) {
+    MANUAL_BREATHE_BTN.disabled = false;
+    MANUAL_BREATHE_BTN.title = "";
+  }
 
   // Only offer a restart when the baseline is genuinely failing to settle.
   if (CAL_RESTART_BTN) CAL_RESTART_BTN.hidden = !(cal && cal.stalled);
@@ -611,12 +620,20 @@ if (BP_DISMISS_BTN) {
   });
 }
 
+// The backend owns the durable intervention record; the animation, phase timer
+// and cycle counter stay here. A stop with nothing running is a no-op server-side,
+// so the duplicate stop on a natural finish is safe.
 function logExerciseBackend(event) {
-  fetch("/session/exercise", {
+  fetch("/session/intervention", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ event: event, timestamp: Date.now() / 1000 }),
-  }).catch(e => console.debug("Exercise log marker error:", e));
+    body: JSON.stringify({
+      event: event,
+      technique: "box_4_4_4_4",
+      planned_duration_s: exerciseDurationSec,
+      cycles_completed: exerciseCycleCount,
+    }),
+  }).catch(e => console.debug("Intervention log error:", e));
 }
 
 function startExercise() {
