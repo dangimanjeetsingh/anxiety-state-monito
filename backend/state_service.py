@@ -407,9 +407,31 @@ class AnxietyStateService:
         }
 
     def _calibration_dict(self, now: float) -> Optional[Dict[str, Any]]:
-        """Calibration telemetry. Implemented in P2; None until then."""
-        # NOTE(plan): P1 stub — P2 replaces this with real telemetry.
-        return None
+        """Calibration telemetry for the `session` block. Caller holds the lock."""
+        st = self.sessions.state
+        if st.phase == PHASE_IDLE:
+            return None
+        b = self.baseline
+        target = b.calibration_target_s
+        elapsed = b.calibration_elapsed_s(now)
+        conn = (self._snapshot.connection or "").lower()
+        paused = st.phase == PHASE_CALIBRATING and conn not in ("connected", "mock")
+        stall_after = target * self._cfg.session.calibration_stall_factor
+        stalled = (
+            st.phase == PHASE_CALIBRATING
+            and not paused
+            and elapsed > stall_after
+        )
+        return {
+            "method": b.calibration_method,
+            "progress": round(b.calibration_progress(), 3),
+            "elapsed_s": round(elapsed, 1),
+            "target_s": target,
+            "stable": bool(b.calibration_stable),
+            "stalled": bool(stalled),
+            "paused": bool(paused),
+            "attempts": st.calibration_attempts,
+        }
 
     def reset_session(self) -> None:
         with self._lock:

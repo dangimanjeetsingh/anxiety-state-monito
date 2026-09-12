@@ -176,6 +176,13 @@ class BaselineTracker:
         # --- Calibration state flag (requirement 1) ---
         self.is_calibrated: bool = False
 
+        # --- Calibration telemetry (read-only; does not affect locking) ---
+        self._calib_started_t: Optional[float] = None
+        self._last_span: float = 0.0
+        self._last_stable: bool = False
+        self._locked_at_t: Optional[float] = None
+        self._locked_after_s: Optional[float] = None
+
         # If fixed values are provided, treat the tracker as already calibrated
         if fixed_hr is not None and fixed_gsr is not None:
             self.baseline_hr = fixed_hr
@@ -194,6 +201,11 @@ class BaselineTracker:
     def reset(self) -> None:
         """Reset accumulation state (e.g. on sensor reconnect)."""
         self._calib_buffer.clear()
+        self._calib_started_t = None
+        self._last_span = 0.0
+        self._last_stable = False
+        self._locked_at_t = None
+        self._locked_after_s = None
         self._drift_hr_sign = 0
         self._drift_hr_t0 = None
         self._drift_gsr_sign = 0
@@ -226,6 +238,8 @@ class BaselineTracker:
             return
 
         # --- Calibration phase: maintain a sliding window of _calib_s length ---
+        if self._calib_started_t is None:
+            self._calib_started_t = t
         self._calib_buffer.append((t, hr, gsr))
         
         # Prune samples strictly older than _calib_s
@@ -234,6 +248,7 @@ class BaselineTracker:
 
         # Check if the buffer covers at least the requested calibration time
         span = t - self._calib_buffer[0][0] if self._calib_buffer else 0.0
+        self._last_span = span
         
         if span >= self._calib_s * 0.95 and len(self._calib_buffer) >= 10:
             hrs = [p[1] for p in self._calib_buffer]
@@ -246,10 +261,14 @@ class BaselineTracker:
             # If the period is stable, lock the calibration!
             # Otherwise, the buffer will continue to slide forward as new samples arrive,
             # effectively extending the calibration window until a calm period is found.
-            if std_hr <= self._max_std_hr and std_gsr <= self._max_std_gsr:
+            self._last_stable = (std_hr <= self._max_std_hr and std_gsr <= self._max_std_gsr)
+            if self._last_stable:
                 self.baseline_hr = mean_hr
                 self.baseline_gsr = mean_gsr
                 self.is_calibrated = True
+                self._locked_at_t = t
+                if self._calib_started_t is not None:
+                    self._locked_after_s = max(0.0, t - self._calib_started_t)
                 self._calib_buffer.clear() # Free memory
 
     def ensure_from_window(self, mean_hr: float, mean_gsr: float) -> None:
@@ -260,6 +279,47 @@ class BaselineTracker:
             self.baseline_hr = mean_hr
         if self.baseline_gsr is None:
             self.baseline_gsr = mean_gsr
+
+    # ------------------------------------------------------------------
+    # Calibration telemetry (read-only)
+    # ------------------------------------------------------------------
+
+    @property
+    def calibration_target_s(self) -> float:
+        """Length of the resting window the baseline needs to cover."""
+        return self._calib_s
+
+    @property
+    def calibration_method(self) -> str:
+        """"fixed" when a configured baseline is used, else "personalized"."""
+        return "fixed" if (self._fixed_hr is not None and self._fixed_gsr is not None) else "personalized"
+
+    def calibration_elapsed_s(self, now_t: float) -> float:
+        """Seconds spent calibrating so far, or the total once the baseline locked."""
+        if self.calibration_method == "fixed":
+            return 0.0
+        if self._locked_after_s is not None:
+            return self._locked_after_s
+        if self._calib_started_t is None:
+            return 0.0
+        return max(0.0, now_t - self._calib_started_t)
+
+    def calibration_progress(self) -> float:
+        """0.0-1.0 from the true buffer span, NOT the sliding prediction window."""
+        if self.is_calibrated:
+            return 1.0
+        if self._calib_s <= 0:
+            return 1.0
+        return max(0.0, min(1.0, self._last_span / self._calib_s))
+
+    @property
+    def calibration_stable(self) -> bool:
+        """Did the most recently evaluated buffer pass the stability gates."""
+        return self._last_stable
+
+    def calibration_locked_after_s(self) -> Optional[float]:
+        """Seconds from the first calibration sample to the baseline locking."""
+        return self._locked_after_s
 
     # ------------------------------------------------------------------
     # Private helpers

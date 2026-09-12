@@ -14,7 +14,6 @@ const STATE_CARD    = document.getElementById("stateCard");
 const STATE_RING_PROGRESS = document.getElementById("stateRingProgressFill");
 const STATE_CAL_CAPTION   = document.getElementById("stateCalibratingPct");
 const STATE_RING_CIRC = 2 * Math.PI * 46;
-const CALIBRATION_TARGET_SAMPLES = 30;
 const CONN_TEXT     = document.getElementById("connText");
 const CONN_DOT      = document.getElementById("connDot");
 const BASELINE_INFO = document.getElementById("baselineInfo");
@@ -83,6 +82,7 @@ const SESSION_START_MODAL   = document.getElementById("sessionStartModal");
 const SESSION_START_CLOSE   = document.getElementById("sessionStartCloseBtn");
 const SESSION_START_CONFIRM = document.getElementById("sessionStartConfirmBtn");
 const SESSION_LABEL_INPUT   = document.getElementById("sessionLabelInput");
+const CAL_RESTART_BTN       = document.getElementById("calibrationRestartBtn");
 
 // ── Chart ────────────────────────────────────────────────────────────────────
 const MAX_PTS = 60;
@@ -407,6 +407,7 @@ function setCalibrationStatus(d) {
     }
     // The calibrated pill describes a live baseline; there is none between sessions.
     if (CALIBRATED_PILL) CALIBRATED_PILL.style.display = "none";
+    if (CAL_RESTART_BTN) CAL_RESTART_BTN.hidden = true;
     return;
   }
 
@@ -415,6 +416,10 @@ function setCalibrationStatus(d) {
   const hasReading = d.hr != null && d.gsr != null;
   const calibrated = d.calibrated === true;
   const isMock = conn === "mock";
+  const cal = (d.session && d.session.calibration) || null;
+
+  // Only offer a restart when the baseline is genuinely failing to settle.
+  if (CAL_RESTART_BTN) CAL_RESTART_BTN.hidden = !(cal && cal.stalled);
 
   CAL_BANNER.classList.toggle("is-ready", calibrated);
   CAL_BANNER.classList.toggle("is-waiting", !connected || !hasReading);
@@ -427,10 +432,26 @@ function setCalibrationStatus(d) {
     CAL_TITLE.textContent = "Waiting for valid sensor readings";
     CAL_MESSAGE.textContent = "Keep the sensors in contact with your skin to start calibration.";
     CAL_STATUS.textContent = "Preparing";
+  } else if (cal && cal.paused) {
+    CAL_TITLE.textContent = "Calibration paused — sensor not sending data";
+    CAL_MESSAGE.textContent = "Check the sensor contact and the Bluetooth link. "
+      + "Calibration will resume automatically; nothing measured so far is lost.";
+    CAL_STATUS.textContent = "Paused";
+  } else if (cal && cal.stalled) {
+    CAL_TITLE.textContent = "Still looking for a steady baseline";
+    CAL_MESSAGE.textContent = "Signal variation is too high to lock a baseline. "
+      + "Rest your hand flat, stop talking, and stay still for about 30 seconds.";
+    CAL_STATUS.textContent = "Hold still";
   } else if (!calibrated) {
-    CAL_TITLE.textContent = isMock ? "Mock baseline calibration (~30s)" : "Baseline calibration in progress";
+    // Quote the configured window rather than a hardcoded 30s, so the copy
+    // stays true when ANXIETY_BASELINE_CALIBRATION_S is changed.
+    var targetS = cal && cal.target_s ? Math.round(cal.target_s) : 30;
+    CAL_TITLE.textContent = isMock
+      ? "Mock baseline calibration (~" + targetS + "s)"
+      : "Baseline calibration in progress";
     CAL_MESSAGE.textContent = isMock
-      ? "Mock data generator active. Calibrating baseline over initial 30 seconds. Predictions will start automatically when ready."
+      ? "Mock data generator active. Calibrating baseline over an initial " + targetS
+        + " seconds. Predictions will start automatically when ready."
       : "Please sit calmly, keep your hand still, and breathe normally. Your personal baseline is being measured; predictions will start when it is ready.";
     CAL_STATUS.textContent = "Calibrating";
   } else {
@@ -886,14 +907,20 @@ function render(d) {
     if (cls) STATE_CARD.classList.add(cls);
   }
   if (STATE_RING_PROGRESS) {
-    var calProgress = calibrating
-      ? Math.max(0, Math.min(1, (d.window_samples || 0) / CALIBRATION_TARGET_SAMPLES))
-      : 0;
+    // Progress is the real baseline-buffer span reported by the server, not the
+    // 30-second prediction window, so the ring cannot sit full while calibrating.
+    var cal = (d.session && d.session.calibration) || null;
+    var calProgress = (calibrating && cal) ? (cal.progress || 0) : 0;
     STATE_RING_PROGRESS.style.strokeDashoffset = String(STATE_RING_CIRC * (1 - calProgress));
     if (STATE_CAL_CAPTION) {
-      STATE_CAL_CAPTION.textContent = calibrating
-        ? "Establishing baseline · " + Math.round(calProgress * 100) + "%"
-        : "Establishing baseline";
+      if (calibrating && cal && cal.method === "fixed") {
+        STATE_CAL_CAPTION.textContent = "Using configured baseline";
+      } else if (calibrating) {
+        STATE_CAL_CAPTION.textContent =
+          "Establishing baseline · " + Math.round(calProgress * 100) + "%";
+      } else {
+        STATE_CAL_CAPTION.textContent = "Establishing baseline";
+      }
     }
   }
 
@@ -1056,6 +1083,20 @@ if (SESSION_START_CONFIRM) {
       })
       .catch(function (e) { console.error("start session:", e); })
       .then(function () { SESSION_START_CONFIRM.disabled = false; });
+  });
+}
+
+if (CAL_RESTART_BTN) {
+  CAL_RESTART_BTN.addEventListener("click", function () {
+    CAL_RESTART_BTN.disabled = true;
+    fetch("/session/calibration/restart", { method: "POST" })
+      .then(function (r) { return r.json(); })
+      .then(function (j) { if (j.error) console.warn("restart calibration:", j.error); })
+      .catch(function (e) { console.error("restart calibration:", e); })
+      .then(function () {
+        CAL_RESTART_BTN.disabled = false;
+        CAL_RESTART_BTN.hidden = true;
+      });
   });
 }
 

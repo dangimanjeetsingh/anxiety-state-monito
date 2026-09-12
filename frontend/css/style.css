@@ -3414,3 +3414,22 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .session-chip.is-recording .session-chip-dot { animation: none; }
 }
+
+/* ── P2: Calibration restart affordance ─────────────────────────────────────
+   Shown inside the calibration banner only while the baseline is stalled. */
+.calibration-restart-btn {
+  margin-left: auto;
+  white-space: nowrap;
+  font-size: 12px;
+  padding: 6px 12px;
+  border: 1px solid var(--stress);
+  border-radius: 8px;
+  color: var(--stress);
+  background: transparent;
+}
+
+.calibration-restart-btn:hover {
+  background: rgba(var(--stress-rgb), 0.12);
+}
+
+.calibration-restart-btn[hidden] { display: none; }
