@@ -1,0 +1,7 @@
+# Compiled Python bytecode — regenerated on every run, never worth reviewing.
+__pycache__/
+*.py[cod]
+
+# Local editor / OS noise
+.DS_Store
+Thumbs.db
