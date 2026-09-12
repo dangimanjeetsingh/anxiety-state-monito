@@ -237,6 +237,87 @@
         <canvas id="liveChart" height="120"></canvas>
       </section>
 
+      <!-- ── P6: Session report panel (replaces the live grid when open) ───── -->
+      <section class="report-panel" id="reportPanel" hidden aria-labelledby="rpLabel">
+        <header class="rp-header">
+          <div>
+            <p class="eyebrow">Session report</p>
+            <h2 id="rpLabel">Session</h2>
+            <p class="rp-meta" id="rpMeta"></p>
+          </div>
+          <div class="rp-header-actions">
+            <button type="button" class="btn btn-primary" id="rpNewSessionBtn">Start New Session</button>
+            <button type="button" class="guide-close" id="rpCloseBtn" aria-label="Close report">&times;</button>
+          </div>
+        </header>
+
+        <p class="rp-status-banner" id="rpStatusBanner" hidden></p>
+        <div class="rp-reliability" id="rpReliability"></div>
+
+        <div class="rp-section">
+          <h3>Summary</h3>
+          <div class="rp-narrative" id="rpNarrative"></div>
+        </div>
+
+        <div class="rp-section">
+          <h3>Baseline and physiology</h3>
+          <div class="rp-stats" id="rpStats"></div>
+        </div>
+
+        <div class="rp-section">
+          <h3>Time in each state</h3>
+          <div class="rp-timeline" id="rpTimeline" aria-hidden="true"></div>
+          <div class="rp-timeline-legend" id="rpTimelineLegend"></div>
+        </div>
+
+        <div class="rp-section">
+          <h3>Episodes</h3>
+          <div class="rp-episodes" id="rpEpisodes"></div>
+        </div>
+
+        <div class="rp-section">
+          <h3>Early warnings</h3>
+          <div class="rp-stats" id="rpWarnings"></div>
+        </div>
+
+        <div class="rp-section">
+          <h3>Breathing exercises</h3>
+          <div class="rp-interventions" id="rpInterventions"></div>
+        </div>
+
+        <div class="rp-section">
+          <h3>How the estimates were produced</h3>
+          <div class="rp-stats" id="rpProvenance"></div>
+        </div>
+
+        <div class="rp-section">
+          <h3>Download</h3>
+          <div class="rp-downloads" id="rpDownloads"></div>
+        </div>
+
+        <div class="rp-section rp-method">
+          <h3>Method notes</h3>
+          <p>
+            States come from a rule engine and a trained model, fused, smoothed over a
+            seven-sample majority vote, and held by a state machine with hysteresis. Deltas are
+            measured against the personal baseline recorded at the start of this session.
+            Early warnings are short-horizon linear projections of the current trend.
+          </p>
+          <p class="rp-disclaimer" id="rpDisclaimer"></p>
+        </div>
+      </section>
+
+      <!-- ── P6: Past sessions drawer ──────────────────────────────────────── -->
+      <div class="breathing-modal-backdrop" id="sessionsBackdrop" hidden></div>
+      <aside class="sessions-drawer" id="sessionsDrawer" hidden aria-labelledby="sessionsDrawerTitle">
+        <div class="bm-header">
+          <h2 id="sessionsDrawerTitle">Past sessions</h2>
+          <button type="button" class="guide-close" id="sessionsCloseBtn"
+                  aria-label="Close sessions list">&times;</button>
+        </div>
+        <div class="sessions-list" id="sessionsList"></div>
+      </aside>
+
       <!-- ── P1: Session start dialog ──────────────────────────────────────── -->
       <div class="breathing-modal-backdrop" id="sessionStartBackdrop" hidden></div>
       <div class="breathing-modal session-start-modal" id="sessionStartModal"

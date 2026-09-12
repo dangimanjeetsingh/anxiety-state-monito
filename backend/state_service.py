@@ -475,6 +475,27 @@ class AnxietyStateService:
             json.dump(payload, fh, indent=2)
         os.replace(tmp, path)
 
+    def current_session_id(self) -> Optional[str]:
+        """Id of the session that is currently recording, else None."""
+        with self._lock:
+            st = self.sessions.state
+            return st.id if st.recording else None
+
+    def build_partial_report(self) -> Optional[Dict[str, Any]]:
+        """Live report for the running session. Always graded PARTIAL."""
+        with self._lock:
+            if self._recorder is None:
+                return None
+            report = self._recorder.build_report(
+                time.time(),
+                status="partial",
+                end_reason=None,
+                terminal_state=self._snapshot.state,
+                terminal_phase=self.sessions.phase,
+            )
+        report["quality"]["reliability"] = "PARTIAL"
+        return report
+
     def get_snapshot(self) -> DashboardSnapshot:
         with self._lock:
             return self._snapshot

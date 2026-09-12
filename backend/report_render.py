@@ -303,7 +303,8 @@ def render_html(report: Dict[str, Any]) -> str:
 
     parts.append(_physiology_html(report.get("physiology"), unavailable))
     parts.append(_states_html(report.get("states"), unavailable))
-    parts.append(_episodes_html(report.get("episodes"), report.get("episode_count")))
+    parts.append(_episodes_html(report.get("episodes"), report.get("episode_count"),
+                                report.get("states"), unavailable))
     parts.append(_warnings_html(report.get("early_warnings"), unavailable))
     parts.append(_alerts_html(report.get("alerts"), unavailable))
     parts.append(_interventions_html(report.get("interventions")))
@@ -360,7 +361,12 @@ def _states_html(states: Optional[Dict[str, Any]], unavailable: Dict[str, str]) 
     return "<h2>Time in each state</h2><table>%s</table>" % _rows(rows)
 
 
-def _episodes_html(episodes: Optional[List[Dict[str, Any]]], count: Optional[int]) -> str:
+def _episodes_html(episodes: Optional[List[Dict[str, Any]]], count: Optional[int],
+                   states: Optional[Dict[str, Any]], unavailable: Dict[str, str]) -> str:
+    if states is None:
+        # Suppressed with the rest of the analysis: an empty list here means
+        # "could not be determined", not "none happened".
+        return _missing_section("Episodes", unavailable.get("states"))
     if not episodes:
         return ("<h2>Episodes</h2><p class=\"banner\">No stress or anxiety episodes were "
                 "detected during the monitored window.</p>")

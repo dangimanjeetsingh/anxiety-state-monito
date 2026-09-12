@@ -83,6 +83,7 @@ const SESSION_START_CLOSE   = document.getElementById("sessionStartCloseBtn");
 const SESSION_START_CONFIRM = document.getElementById("sessionStartConfirmBtn");
 const SESSION_LABEL_INPUT   = document.getElementById("sessionLabelInput");
 const CAL_RESTART_BTN       = document.getElementById("calibrationRestartBtn");
+const SESSIONS_LIST_BTN     = document.getElementById("sessionsListBtn");
 
 // ── Chart ────────────────────────────────────────────────────────────────────
 const MAX_PTS = 60;
@@ -1047,8 +1048,16 @@ function updateSessionControls(d) {
     if (SESSION_CHIP_TIME)  SESSION_CHIP_TIME.textContent = fmtClock(sess.elapsed_s || 0);
     SESSION_CHIP.classList.toggle("is-recording", sess.recording === true);
   }
+  if (SESSIONS_LIST_BTN) SESSIONS_LIST_BTN.hidden = false;
   document.body.classList.toggle("session-idle", sess.phase === "IDLE");
   document.body.classList.toggle("session-ended", sess.phase === "ENDED");
+
+  // A newly started session takes over the live view. A report opened from the
+  // Sessions list stays reachable: it is an immutable file addressed by id.
+  if (sess.recording === true && typeof closeReportPanel === "function"
+      && document.body.classList.contains("report-open")) {
+    closeReportPanel();
+  }
 }
 
 function openSessionStartModal() {
@@ -1061,11 +1070,6 @@ function openSessionStartModal() {
 function closeSessionStartModal() {
   if (SESSION_START_MODAL) SESSION_START_MODAL.hidden = true;
   if (SESSION_START_BACKDROP) SESSION_START_BACKDROP.hidden = true;
-}
-
-// P6 implements the report view; P1 only records that a session finished.
-function onSessionEnded(id) {
-  console.log("Session ended:", id);
 }
 
 if (SESSION_PRIMARY_BTN) {
@@ -1119,6 +1123,495 @@ if (CAL_RESTART_BTN) {
 
 if (SESSION_START_CLOSE) SESSION_START_CLOSE.addEventListener("click", closeSessionStartModal);
 if (SESSION_START_BACKDROP) SESSION_START_BACKDROP.addEventListener("click", closeSessionStartModal);
+
+// ── Feature: Session report panel ────────────────────────────────────────────
+// The report is a pure projection of the report JSON. A value the backend could
+// not compute is rendered as "not available — <reason>", never as 0 or a blank.
+const RP_PANEL       = document.getElementById("reportPanel");
+const RP_LABEL       = document.getElementById("rpLabel");
+const RP_META        = document.getElementById("rpMeta");
+const RP_STATUS      = document.getElementById("rpStatusBanner");
+const RP_RELIABILITY = document.getElementById("rpReliability");
+const RP_NARRATIVE   = document.getElementById("rpNarrative");
+const RP_STATS       = document.getElementById("rpStats");
+const RP_TIMELINE    = document.getElementById("rpTimeline");
+const RP_TL_LEGEND   = document.getElementById("rpTimelineLegend");
+const RP_EPISODES    = document.getElementById("rpEpisodes");
+const RP_WARNINGS    = document.getElementById("rpWarnings");
+const RP_INTERV      = document.getElementById("rpInterventions");
+const RP_PROVENANCE  = document.getElementById("rpProvenance");
+const RP_DOWNLOADS   = document.getElementById("rpDownloads");
+const RP_DISCLAIMER  = document.getElementById("rpDisclaimer");
+const RP_CLOSE_BTN   = document.getElementById("rpCloseBtn");
+const RP_NEW_BTN     = document.getElementById("rpNewSessionBtn");
+const SESSIONS_DRAWER  = document.getElementById("sessionsDrawer");
+const SESSIONS_BACKDROP= document.getElementById("sessionsBackdrop");
+const SESSIONS_LIST    = document.getElementById("sessionsList");
+const SESSIONS_CLOSE   = document.getElementById("sessionsCloseBtn");
+
+let openReportId = null;
+
+function rpText(value, fallback) {
+  if (value === null || value === undefined || value === "") return fallback || "not available";
+  return String(value);
+}
+
+function rpNum(value, digits, suffix) {
+  if (value === null || value === undefined) return null;
+  var n = Number(value);
+  if (isNaN(n)) return null;
+  return n.toFixed(digits === undefined ? 0 : digits) + (suffix || "");
+}
+
+function rpDuration(seconds) {
+  if (seconds === null || seconds === undefined) return null;
+  var total = Math.max(0, Math.round(seconds));
+  if (total < 60) return total + " s";
+  return Math.floor(total / 60) + " min " + String(total % 60).padStart(2, "0") + " s";
+}
+
+function rpReason(rep, key, fallback) {
+  var un = rep.unavailable || {};
+  return un[key] || fallback || "not recorded for this session";
+}
+
+// One stat tile. `value` of null renders the reason instead of a number.
+function rpStat(label, value, reason, desc) {
+  var missing = (value === null || value === undefined);
+  var div = document.createElement("div");
+  div.className = "rc-stat" + (missing ? " rc-stat--missing" : "");
+  var l = document.createElement("span");
+  l.className = "rc-stat-label";
+  l.textContent = label;
+  var v = document.createElement("span");
+  v.className = "rc-stat-val";
+  v.textContent = missing ? "not available" : value;
+  div.appendChild(l);
+  div.appendChild(v);
+  if (missing || desc) {
+    var d = document.createElement("span");
+    d.className = "rc-stat-desc";
+    d.textContent = missing ? (reason || "not recorded for this session") : desc;
+    div.appendChild(d);
+  }
+  return div;
+}
+
+function rpClear(el) { while (el && el.firstChild) el.removeChild(el.firstChild); }
+
+function rpMissingSection(el, reason) {
+  rpClear(el);
+  var p = document.createElement("p");
+  p.className = "rp-missing";
+  p.textContent = "not available — " + reason;
+  el.appendChild(p);
+}
+
+function renderReport(rep) {
+  if (!rep || !RP_PANEL) return;
+  openReportId = (rep.identity && rep.identity.id) || null;
+  var identity = rep.identity || {};
+  var quality = rep.quality || {};
+  var baseline = rep.baseline || {};
+  var grade = quality.reliability || "UNKNOWN";
+  var provisional = grade === "LIMITED";
+
+  RP_PANEL.classList.toggle("is-provisional", provisional);
+
+  if (RP_LABEL) RP_LABEL.textContent = identity.label || "Unlabelled session";
+  if (RP_META) {
+    RP_META.textContent = [
+      rpText(identity.started_at_iso, "start time not recorded"),
+      rpDuration(identity.total_duration_s) || "duration not recorded",
+      rpDuration(identity.monitored_duration_s)
+        ? rpDuration(identity.monitored_duration_s) + " monitored" : "not monitored",
+    ].join(" · ");
+  }
+
+  // Status first: a partial or interrupted report must say so before anything else.
+  if (RP_STATUS) {
+    if (rep.status === "partial") {
+      RP_STATUS.textContent = "PARTIAL — this session is still running, so these figures are incomplete.";
+      RP_STATUS.hidden = false;
+    } else if (rep.status === "interrupted") {
+      RP_STATUS.textContent = "INTERRUPTED — the backend restarted during this session, so up to 10 seconds of data is missing.";
+      RP_STATUS.hidden = false;
+    } else {
+      RP_STATUS.hidden = true;
+    }
+  }
+
+  // Reliability banner, before any metric it qualifies.
+  if (RP_RELIABILITY) {
+    rpClear(RP_RELIABILITY);
+    RP_RELIABILITY.className = "rp-reliability grade-" + grade.toLowerCase();
+    var title = document.createElement("strong");
+    title.textContent = "Signal reliability: " + grade;
+    RP_RELIABILITY.appendChild(title);
+    var reasons = quality.reliability_reasons || [];
+    if (reasons.length) {
+      var ul = document.createElement("ul");
+      reasons.forEach(function (r) {
+        var li = document.createElement("li");
+        li.textContent = r;
+        ul.appendChild(li);
+      });
+      RP_RELIABILITY.appendChild(ul);
+    } else {
+      var p = document.createElement("p");
+      p.textContent = grade === "GOOD"
+        ? "The session produced enough usable signal to describe it in full."
+        : "This session is still running, so the figures below are incomplete.";
+      RP_RELIABILITY.appendChild(p);
+    }
+  }
+
+  if (RP_NARRATIVE) {
+    rpClear(RP_NARRATIVE);
+    (rep.narrative || []).forEach(function (line) {
+      var p = document.createElement("p");
+      p.textContent = line;
+      RP_NARRATIVE.appendChild(p);
+    });
+  }
+
+  renderReportStats(rep, baseline, quality);
+  renderReportTimeline(rep);
+  renderReportEpisodes(rep);
+  renderReportWarnings(rep);
+  renderReportInterventions(rep);
+  renderReportProvenance(rep);
+  renderReportDownloads(rep);
+
+  if (RP_DISCLAIMER) RP_DISCLAIMER.textContent = rep.disclaimer || "";
+  markProvisionalSections(provisional);
+}
+
+function markProvisionalSections(provisional) {
+  var sections = document.querySelectorAll("#reportPanel .rp-section h3");
+  for (var i = 0; i < sections.length; i++) {
+    var existing = sections[i].querySelector(".rp-provisional-tag");
+    if (provisional && !existing) {
+      var tag = document.createElement("span");
+      tag.className = "rp-provisional-tag";
+      tag.textContent = "provisional";
+      sections[i].appendChild(tag);
+    } else if (!provisional && existing) {
+      existing.remove();
+    }
+  }
+}
+
+function renderReportStats(rep, baseline, quality) {
+  if (!RP_STATS) return;
+  rpClear(RP_STATS);
+  var phys = rep.physiology;
+  var hr = (phys && phys.hr) || {};
+  var gsr = (phys && phys.gsr) || {};
+  var physReason = rpReason(rep, "physiology", "no physiology was recorded");
+
+  RP_STATS.appendChild(rpStat("Baseline HR",
+    rpNum(baseline.hr, 0, " bpm"), "calibration never completed",
+    "measured over " + (rpDuration(baseline.calibration_duration_s) || "an unknown time")));
+  RP_STATS.appendChild(rpStat("Baseline GSR",
+    rpNum(baseline.gsr, 0), "calibration never completed", baseline.method || ""));
+  RP_STATS.appendChild(rpStat("HR mean / max",
+    phys && hr.mean !== null && hr.mean !== undefined
+      ? rpNum(hr.mean, 0) + " / " + rpNum(hr.max, 0) + " bpm" : null, physReason));
+  RP_STATS.appendChild(rpStat("GSR mean / max",
+    phys && gsr.mean !== null && gsr.mean !== undefined
+      ? rpNum(gsr.mean, 0) + " / " + rpNum(gsr.max, 0) : null, physReason));
+  RP_STATS.appendChild(rpStat("Peak change from baseline",
+    phys ? ("HR " + rpText(rpNum(phys.peak_delta_hr, 1)) + " · GSR "
+            + rpText(rpNum(phys.peak_delta_gsr, 1))) : null, physReason));
+  RP_STATS.appendChild(rpStat("Sample coverage",
+    rpNum(quality.coverage_pct, 1, "%"), "no samples were evaluated",
+    (quality.samples_evaluated || 0) + " of " + (quality.expected_samples || 0) + " expected"));
+  RP_STATS.appendChild(rpStat("Mean confidence",
+    rpNum(quality.mean_confidence, 2), "no samples were evaluated",
+    "lowest " + rpText(rpNum(quality.min_confidence, 2))));
+  RP_STATS.appendChild(rpStat("Connection gaps",
+    quality.disconnect_count === null || quality.disconnect_count === undefined
+      ? null : String(quality.disconnect_count), "not recorded",
+    rpDuration(quality.total_disconnected_s) || "none"));
+}
+
+function renderReportTimeline(rep) {
+  if (!RP_TIMELINE || !RP_TL_LEGEND) return;
+  rpClear(RP_TIMELINE);
+  rpClear(RP_TL_LEGEND);
+  var states = rep.states;
+  if (!states || !states.seconds || !Object.keys(states.seconds).length) {
+    RP_TIMELINE.style.display = "none";
+    rpMissingSection(RP_TL_LEGEND, rpReason(rep, "states", "no state time was recorded"));
+    return;
+  }
+  RP_TIMELINE.style.display = "flex";
+  var order = ["CALM", "STRESS", "ANXIETY", "RECOVERY"];
+  var names = Object.keys(states.seconds).sort(function (a, b) {
+    return order.indexOf(a) - order.indexOf(b);
+  });
+  names.forEach(function (name) {
+    var pct = (states.pct || {})[name] || 0;
+    var seg = document.createElement("div");
+    seg.className = "rp-tl-seg state-" + name.toLowerCase();
+    seg.style.width = pct + "%";
+    seg.title = name + " · " + pct + "%";
+    RP_TIMELINE.appendChild(seg);
+
+    var item = document.createElement("div");
+    item.className = "rp-tl-item";
+    var dot = document.createElement("span");
+    dot.className = "rp-tl-dot state-" + name.toLowerCase();
+    var text = document.createElement("span");
+    text.textContent = name + " — " + (rpDuration(states.seconds[name]) || "0 s") + " (" + pct + "%)";
+    item.appendChild(dot);
+    item.appendChild(text);
+    RP_TL_LEGEND.appendChild(item);
+  });
+  var changes = document.createElement("div");
+  changes.className = "rp-tl-item rp-tl-changes";
+  changes.textContent = (states.transition_count || 0) + " state changes";
+  RP_TL_LEGEND.appendChild(changes);
+}
+
+function renderReportEpisodes(rep) {
+  if (!RP_EPISODES) return;
+  rpClear(RP_EPISODES);
+  // `states` is null exactly when the session had too little evidence to be
+  // characterised. Episodes come back as [] there, which must NOT be shown as
+  // "none detected" — that would read as a clean result we cannot claim.
+  if (!rep.episodes || !rep.states) {
+    rpMissingSection(RP_EPISODES, rpReason(rep, "states", "no episodes were recorded"));
+    return;
+  }
+  if (!rep.episodes.length) {
+    var p = document.createElement("p");
+    p.className = "rp-empty";
+    p.textContent = "No stress or anxiety episodes were detected during the monitored window.";
+    RP_EPISODES.appendChild(p);
+    return;
+  }
+  rep.episodes.forEach(function (ep) {
+    var card = document.createElement("div");
+    card.className = "rp-episode state-" + String(ep.kind || "").toLowerCase();
+    var head = document.createElement("div");
+    head.className = "rp-episode-head";
+    head.textContent = "#" + ep.index + " " + ep.kind + " · " + (rpDuration(ep.duration_s) || "?");
+    var body = document.createElement("div");
+    body.className = "rp-episode-body";
+    var bits = [
+      "began " + (rpDuration(ep.start_rel) || "?") + " into monitoring",
+      "peak HR " + rpText(rpNum(ep.peak_hr, 0, " bpm")),
+      "peak alert " + rpText(ep.max_alert_reached, "none"),
+      ep.preceded_by_early_warning
+        ? ("warned " + rpText(rpNum(ep.lead_time_s, 1, " s")) + " ahead")
+        : "no prior warning",
+      "ended: " + rpText(ep.resolved_via, "escalated"),
+    ];
+    if (ep.patterns_observed && ep.patterns_observed.length) {
+      bits.push("patterns: " + ep.patterns_observed.join(", "));
+    }
+    if (ep.intervention_index) {
+      bits.push("breathing exercise " + ep.intervention_index + " overlapped");
+    }
+    body.textContent = bits.join(" · ");
+    card.appendChild(head);
+    card.appendChild(body);
+    RP_EPISODES.appendChild(card);
+  });
+}
+
+function renderReportWarnings(rep) {
+  if (!RP_WARNINGS) return;
+  rpClear(RP_WARNINGS);
+  var w = rep.early_warnings;
+  if (!w) {
+    rpMissingSection(RP_WARNINGS, rpReason(rep, "early_warnings", "no forecasts were recorded"));
+    return;
+  }
+  RP_WARNINGS.appendChild(rpStat("Issued", String(w.issued || 0), null,
+    "short-horizon forecasts raised"));
+  RP_WARNINGS.appendChild(rpStat("Confirmed", String(w.confirmed || 0), null,
+    "followed by the predicted state"));
+  RP_WARNINGS.appendChild(rpStat("Not followed", String(w.unconfirmed || 0), null,
+    "the predicted state did not arrive in the window"));
+  RP_WARNINGS.appendChild(rpStat("Median lead time",
+    rpNum(w.median_lead_time_s, 1, " s"),
+    "no warning was followed by the predicted state"));
+}
+
+function renderReportInterventions(rep) {
+  if (!RP_INTERV) return;
+  rpClear(RP_INTERV);
+  var list = rep.interventions || [];
+  if (!list.length) {
+    var p = document.createElement("p");
+    p.className = "rp-empty";
+    p.textContent = "No breathing exercise was performed during this session.";
+    RP_INTERV.appendChild(p);
+    return;
+  }
+  list.forEach(function (iv) {
+    var card = document.createElement("div");
+    card.className = "rp-episode";
+    var head = document.createElement("div");
+    head.className = "rp-episode-head";
+    head.textContent = "Exercise #" + iv.index + " · " + rpText(iv.technique)
+      + " · " + (rpDuration(iv.actual_duration_s) || "?");
+    var grid = document.createElement("div");
+    grid.className = "rp-stats";
+    grid.appendChild(rpStat("Completion", iv.completion,
+      rpReason(rep, "interventions[" + iv.index + "].completion",
+               "no planned duration was recorded")));
+    grid.appendChild(rpStat("HR change across exercise",
+      rpNum(iv.hr_change_bpm, 1, " bpm"), "HR was not recorded",
+      "from " + rpText(rpNum(iv.hr_at_start, 0)) + " to " + rpText(rpNum(iv.hr_at_end, 0))));
+    grid.appendChild(rpStat("HR 60 s after",
+      rpNum(iv.hr_at_plus_60s, 1, " bpm"),
+      rpReason(rep, "interventions[" + iv.index + "].hr_at_plus_60s",
+               "the observation window did not complete")));
+    grid.appendChild(rpStat("State at start / end",
+      iv.state_at_start ? (iv.state_at_start + " → " + rpText(iv.state_at_end)) : null,
+      "state was not recorded for this exercise"));
+    grid.appendChild(rpStat("Returned to CALM in window",
+      iv.returned_to_calm_within_window
+        ? ("yes, after " + rpText(rpNum(iv.time_to_calm_s, 1, " s"))) : "no", null,
+      "observation only"));
+    grid.appendChild(rpStat("Recovery data", iv.recovery_data, "the window never opened"));
+    card.appendChild(head);
+    card.appendChild(grid);
+    RP_INTERV.appendChild(card);
+  });
+}
+
+function renderReportProvenance(rep) {
+  if (!RP_PROVENANCE) return;
+  rpClear(RP_PROVENANCE);
+  var prov = rep.provenance;
+  if (!prov) {
+    rpMissingSection(RP_PROVENANCE, rpReason(rep, "provenance", "no decisions were recorded"));
+    return;
+  }
+  var pct = prov.fusion_source_pct || {};
+  RP_PROVENANCE.appendChild(rpStat("Rules only", rpNum(pct.rules, 1, "%"), "no decisions were recorded"));
+  RP_PROVENANCE.appendChild(rpStat("ML only", rpNum(pct.ml, 1, "%"), "the ML model did not contribute"));
+  RP_PROVENANCE.appendChild(rpStat("Rules and ML agreed", rpNum(pct.both, 1, "%"),
+    "the ML model did not contribute"));
+  RP_PROVENANCE.appendChild(rpStat("Rule engine matched the final state",
+    rpNum(prov.rule_final_agreement_pct, 1, "%"), "no decisions were recorded"));
+  RP_PROVENANCE.appendChild(rpStat("Unstable label flips suppressed",
+    String(prov.smoothing_suppressed_flips || 0), null, "by smoothing and the state machine"));
+  RP_PROVENANCE.appendChild(rpStat("ML-led ANXIETY decisions",
+    String(prov.ml_anxiety_adoptions || 0), null, "model overrode the rules"));
+}
+
+function renderReportDownloads(rep) {
+  if (!RP_DOWNLOADS) return;
+  rpClear(RP_DOWNLOADS);
+  var id = rep.identity && rep.identity.id;
+  if (!id) return;
+  [["JSON", "/session/" + id + "/report"],
+   ["HTML", "/session/" + id + "/report.html"],
+   ["CSV", "/session/" + id + "/report.csv"]].forEach(function (pair) {
+    var a = document.createElement("a");
+    a.className = "btn btn-ghost rp-download";
+    a.href = pair[1];
+    a.textContent = pair[0];
+    a.setAttribute("download", "");
+    RP_DOWNLOADS.appendChild(a);
+  });
+}
+
+function openReportPanel() {
+  if (!RP_PANEL) return;
+  RP_PANEL.hidden = false;
+  document.body.classList.add("report-open");
+  RP_PANEL.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+function closeReportPanel() {
+  if (!RP_PANEL) return;
+  RP_PANEL.hidden = true;
+  document.body.classList.remove("report-open");
+}
+
+function loadReport(sessionId) {
+  return fetch("/session/" + sessionId + "/report")
+    .then(function (r) {
+      if (!r.ok) throw new Error("report " + r.status);
+      return r.json();
+    })
+    .then(function (rep) { renderReport(rep); openReportPanel(); })
+    .catch(function (e) { console.error("report fetch:", e); });
+}
+
+function onSessionEnded(sessionId) {
+  loadReport(sessionId);
+}
+
+function loadSessionsList() {
+  if (!SESSIONS_LIST) return;
+  fetch("/sessions")
+    .then(function (r) { return r.json(); })
+    .then(function (items) {
+      rpClear(SESSIONS_LIST);
+      if (!items.length) {
+        var empty = document.createElement("p");
+        empty.className = "rp-empty";
+        empty.textContent = "No sessions have been recorded yet.";
+        SESSIONS_LIST.appendChild(empty);
+        return;
+      }
+      items.forEach(function (item) {
+        var row = document.createElement("button");
+        row.type = "button";
+        row.className = "session-row";
+        var title = document.createElement("span");
+        title.className = "session-row-title";
+        title.textContent = item.label || "Unlabelled session";
+        var meta = document.createElement("span");
+        meta.className = "session-row-meta";
+        meta.textContent = [
+          rpText(item.started_at_iso, "time not recorded"),
+          rpDuration(item.duration_s) || "duration not recorded",
+          rpText(item.reliability, "ungraded"),
+          (item.episode_count === null || item.episode_count === undefined)
+            ? "episodes not recorded"
+            : (item.episode_count + " episode" + (item.episode_count === 1 ? "" : "s")),
+        ].join(" · ");
+        row.appendChild(title);
+        row.appendChild(meta);
+        row.addEventListener("click", function () {
+          closeSessionsDrawer();
+          loadReport(item.id);
+        });
+        SESSIONS_LIST.appendChild(row);
+      });
+    })
+    .catch(function (e) { console.error("sessions list:", e); });
+}
+
+function openSessionsDrawer() {
+  if (!SESSIONS_DRAWER) return;
+  SESSIONS_DRAWER.hidden = false;
+  if (SESSIONS_BACKDROP) SESSIONS_BACKDROP.hidden = false;
+  loadSessionsList();
+}
+
+function closeSessionsDrawer() {
+  if (SESSIONS_DRAWER) SESSIONS_DRAWER.hidden = true;
+  if (SESSIONS_BACKDROP) SESSIONS_BACKDROP.hidden = true;
+}
+
+if (RP_CLOSE_BTN) RP_CLOSE_BTN.addEventListener("click", closeReportPanel);
+if (RP_NEW_BTN) RP_NEW_BTN.addEventListener("click", function () {
+  closeReportPanel();
+  openSessionStartModal();
+});
+if (SESSIONS_LIST_BTN) SESSIONS_LIST_BTN.addEventListener("click", openSessionsDrawer);
+if (SESSIONS_CLOSE) SESSIONS_CLOSE.addEventListener("click", closeSessionsDrawer);
+if (SESSIONS_BACKDROP) SESSIONS_BACKDROP.addEventListener("click", closeSessionsDrawer);
 
 // ── SSE Stream ────────────────────────────────────────────────────────────────
 function initStream() {
