@@ -50,6 +50,35 @@ def _pct(part: float, whole: float) -> Optional[float]:
     return round(part / whole * 100.0, 1)
 
 
+def grade_reliability(*, baseline_completed: bool, monitored_duration_s: float,
+                      coverage_pct: Optional[float],
+                      mean_confidence: Optional[float]) -> tuple:
+    """Grade a session's evidence (PLAN.md section 3.5). First matching tier wins.
+
+    Returns (grade, reasons); every non-GOOD grade carries all of its reasons.
+    """
+    reasons: List[str] = []
+    if not baseline_completed:
+        reasons.append("baseline calibration never completed")
+    if monitored_duration_s < 60.0:
+        reasons.append("monitored window shorter than 60 seconds")
+    if coverage_pct is not None and coverage_pct < 40.0:
+        reasons.append("fewer than 40% of expected samples were usable")
+    if reasons:
+        return "INSUFFICIENT", reasons
+
+    if monitored_duration_s < 180.0:
+        reasons.append("monitored window shorter than 3 minutes")
+    if coverage_pct is not None and coverage_pct < 70.0:
+        reasons.append("under 70% sample coverage")
+    if mean_confidence is not None and mean_confidence < 0.45:
+        reasons.append("average signal quality was low")
+    if reasons:
+        return "LIMITED", reasons
+
+    return "GOOD", []
+
+
 class SessionRecorder:
     """Accumulates one session's evidence and renders it as the report dict."""
 
@@ -225,11 +254,11 @@ class SessionRecorder:
                     self._append(self.transitions, {
                         "at_rel": round(rel, 1), "from": self.current_state, "to": state,
                     })
-                self._close_run(now, rel, resolved_via=state)
+                self._close_run(rel, next_state=state)
                 self.current_state = state
                 self.current_state_since = now
                 if state in EPISODE_STATES:
-                    self._open_state_run(state, rel, now)
+                    self._open_state_run(state, rel)
             self._update_open_run(hr, d_gsr, stress, alert, pattern, rel)
 
         # --- alerts ---
@@ -363,43 +392,45 @@ class SessionRecorder:
         return int(round(self.monitored_duration_s(now)))
 
     def episodes_so_far(self, now: float) -> List[Dict[str, Any]]:
-        """Qualifying STRESS/ANXIETY runs, including one still open."""
-        runs = list(self._state_runs)
+        """Qualifying STRESS/ANXIETY episodes, including one still open."""
+        runs = [dict(r) for r in self._state_runs]
         if self._open_run is not None:
             live = dict(self._open_run)
+            live["patterns_observed"] = list(live["patterns_observed"])
             live["duration_s"] = round(max(0.0, self.rel(now) - live["start_rel"]), 1)
             live["resolved_via"] = "open_at_session_end"
             runs.append(live)
-        return [r for r in runs if (r.get("duration_s") or 0.0) >= EPISODE_MIN_DURATION_S]
+        # A run shorter than the minimum is not an episode, so indices are assigned
+        # only after the short ones are discarded.
+        episodes = [r for r in runs if (r.get("duration_s") or 0.0) >= EPISODE_MIN_DURATION_S]
+        for i, episode in enumerate(episodes, start=1):
+            episode["index"] = i
+            episode["intervention_index"] = self._overlapping_intervention(episode)
+        return episodes
+
+    def _overlapping_intervention(self, episode: Dict[str, Any]) -> Optional[int]:
+        """Index of an intervention whose window overlaps this episode's window."""
+        ep_start = episode["start_rel"]
+        ep_end = ep_start + (episode.get("duration_s") or 0.0)
+        for item in self.interventions:
+            iv_start = item.get("started_at_rel")
+            if iv_start is None:
+                continue
+            iv_end = iv_start + (item.get("actual_duration_s") or 0.0)
+            if iv_start <= ep_end and ep_start <= iv_end:
+                return item.get("index")
+        return None
 
     def grade_reliability(self, now: float, status: str) -> tuple:
-        """Return (grade, reasons) per PLAN.md section 3.5. First match wins."""
+        """Grade this session so far. PARTIAL is forced while it is still running."""
         if status == "partial":
             return "PARTIAL", []
-        reasons: List[str] = []
-        monitored = self.monitored_duration_s(now)
-        coverage = self.coverage_pct(now)
-        mean_conf = self.mean_confidence()
-
-        if not self.baseline_completed:
-            reasons.append("baseline calibration never completed")
-        if monitored < 60.0:
-            reasons.append("monitored window shorter than 60 seconds")
-        if coverage is not None and coverage < 40.0:
-            reasons.append("fewer than 40% of expected samples were usable")
-        if reasons:
-            return "INSUFFICIENT", reasons
-
-        if monitored < 180.0:
-            reasons.append("monitored window shorter than 3 minutes")
-        if coverage is not None and coverage < 70.0:
-            reasons.append("under 70% sample coverage")
-        if mean_conf is not None and mean_conf < 0.45:
-            reasons.append("average signal quality was low")
-        if reasons:
-            return "LIMITED", reasons
-
-        return "GOOD", []
+        return grade_reliability(
+            baseline_completed=self.baseline_completed,
+            monitored_duration_s=self.monitored_duration_s(now),
+            coverage_pct=self.coverage_pct(now),
+            mean_confidence=self.mean_confidence(),
+        )
 
     # ------------------------------------------------------------------
     # Output
@@ -421,6 +452,7 @@ class SessionRecorder:
     def build_report(self, now: float, *, status: str, end_reason: Optional[str],
                      terminal_state: Optional[str], terminal_phase: str) -> Dict[str, Any]:
         """Assemble the report dict (PLAN.md section 3.4)."""
+        from backend.report_render import build_narrative   # local: avoids an import cycle
         monitored = self.monitored_duration_s(now)
         calibration_s = self.calibration_duration_s(now)
         coverage = self.coverage_pct(now)
@@ -493,7 +525,7 @@ class SessionRecorder:
             report["episode_count"] = 0
             report["stress_episode_count"] = 0
             report["anxiety_episode_count"] = 0
-            report["narrative"] = self._narrative(identity, quality, baseline, None)
+            report["narrative"] = build_narrative(report)
             return report
 
         report["physiology"] = self._physiology(unavailable)
@@ -503,14 +535,14 @@ class SessionRecorder:
         report["episode_count"] = len(episodes)
         report["stress_episode_count"] = sum(1 for e in episodes if e["kind"] == "STRESS")
         report["anxiety_episode_count"] = sum(1 for e in episodes if e["kind"] == "ANXIETY")
-        report["early_warnings"] = self._early_warnings()
+        report["early_warnings"] = self._early_warnings(final=status != "partial")
         report["alerts"] = {
             "counts": dict(self.alert_counts),
             "peak_alert": self.peak_alert,
             "seconds_at_high": _round(self.seconds_at_high),
         }
         report["provenance"] = self._provenance()
-        report["narrative"] = self._narrative(identity, quality, baseline, report["states"])
+        report["narrative"] = build_narrative(report)
         return report
 
     # ------------------------------------------------------------------
@@ -553,9 +585,17 @@ class SessionRecorder:
             "transitions": list(self.transitions),
         }
 
-    def _early_warnings(self) -> Dict[str, Any]:
-        # NOTE(plan): P3 records the raw forecasts; P4 verifies each outcome.
-        items = [{k: v for k, v in w.items() if k != "at_abs"} for w in self._warning_events]
+    def _early_warnings(self, final: bool) -> Dict[str, Any]:
+        """Issued forecasts and how many were followed by the predicted state.
+
+        This is a count of what happened, not an accuracy or validation figure.
+        """
+        items = []
+        for w in self._warning_events:
+            item = {k: v for k, v in w.items() if k != "at_abs"}
+            if final and item.get("outcome") is None:
+                item["outcome"] = "unconfirmed"
+            items.append(item)
         leads = [w["actual_lead_time_s"] for w in self._warning_events
                  if w.get("actual_lead_time_s") is not None]
         return {
@@ -578,25 +618,6 @@ class SessionRecorder:
             "ml_model_available": self.ml_seen,
         }
 
-    def _narrative(self, identity: Dict[str, Any], quality: Dict[str, Any],
-                   baseline: Dict[str, Any], states: Optional[Dict[str, Any]]) -> List[str]:
-        # NOTE(plan): P4 replaces this with the full narrative builder.
-        name = identity["label"] or "Unlabelled session"
-        total = identity["total_duration_s"] or 0.0
-        monitored = identity["monitored_duration_s"] or 0.0
-        lines = [
-            "Session '%s' ran for %s, of which %s was monitored after calibration."
-            % (name, _human_duration(total), _human_duration(monitored)),
-        ]
-        if not baseline["completed"]:
-            lines.append("The baseline never settled, so no state estimates were produced.")
-        elif states and states["seconds"]:
-            top = max(states["seconds"].items(), key=lambda kv: kv[1])
-            lines.append("Most of the monitored time was spent in %s (%.0f%%)."
-                         % (top[0], states["pct"].get(top[0], 0.0)))
-        lines.append("Signal reliability for this session was graded %s." % quality["reliability"])
-        return lines
-
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
@@ -605,9 +626,10 @@ class SessionRecorder:
         if len(target) < MAX_EVENT_ITEMS:
             target.append(item)
 
-    def _open_state_run(self, kind: str, rel: float, now: float) -> None:
+    def _open_state_run(self, kind: str, rel: float) -> None:
+        warning = self._claim_warning(kind, rel)
         self._open_run = {
-            "index": len(self._state_runs) + 1,
+            "index": 0,   # assigned at output time, after short runs are discarded
             "kind": kind,
             "start_rel": round(rel, 1),
             "duration_s": 0.0,
@@ -616,12 +638,32 @@ class SessionRecorder:
             "peak_delta_gsr": None,
             "max_alert_reached": None,
             "patterns_observed": [],
-            # Filled in P4 from the recorded warnings and interventions.
-            "preceded_by_early_warning": None,
-            "lead_time_s": None,
+            "preceded_by_early_warning": warning is not None,
+            "lead_time_s": _round(rel - warning["at_rel"]) if warning else None,
             "resolved_via": None,
             "intervention_index": None,
         }
+
+    def _claim_warning(self, kind: str, rel: float) -> Optional[Dict[str, Any]]:
+        """Most recent forecast of *kind* whose window still covers this episode start.
+
+        A forecast counts as confirmed when the state arrives within its own
+        horizon plus WARNING_GRACE_S.
+        """
+        for warning in reversed(self._warning_events):
+            if warning.get("predicted_state") != kind:
+                continue
+            lead = rel - (warning.get("at_rel") or 0.0)
+            if lead < 0:
+                continue
+            horizon = warning.get("forecast_s")
+            horizon = horizon if horizon is not None else 0.0
+            if lead <= horizon + WARNING_GRACE_S:
+                warning["outcome"] = "confirmed"
+                warning["actual_lead_time_s"] = round(lead, 1)
+                return warning
+            break   # older warnings are further away still
+        return None
 
     def _update_open_run(self, hr: Optional[float], delta_gsr: Optional[float],
                          stress: Optional[float], alert: Optional[str],
@@ -643,12 +685,22 @@ class SessionRecorder:
         if pattern and pattern != "NORMAL" and pattern not in run["patterns_observed"]:
             run["patterns_observed"].append(pattern)
 
-    def _close_run(self, now: float, rel: float, resolved_via: Optional[str]) -> None:
+    def _close_run(self, rel: float, next_state: Optional[str]) -> None:
+        """Close the open episode. Never synthesizes a resolution."""
         run = self._open_run
         if run is None:
             return
         run["duration_s"] = round(max(0.0, rel - run["start_rel"]), 1)
-        run["resolved_via"] = "RECOVERY" if resolved_via == "RECOVERY" else "direct_calm"
+        if next_state == "RECOVERY":
+            run["resolved_via"] = "RECOVERY"
+        elif next_state == "CALM":
+            run["resolved_via"] = "direct_calm"
+        else:
+            # NOTE(plan): STRESS -> ANXIETY is an escalation, not a resolution, so
+            # resolved_via stays null and the run is tagged instead.
+            run["resolved_via"] = None
+            if "escalated" not in run["patterns_observed"]:
+                run["patterns_observed"].append("escalated")
         self._append(self._state_runs, run)
         self._open_run = None
 
