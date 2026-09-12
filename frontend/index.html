@@ -21,6 +21,19 @@
           </div>
         </div>
         <div class="header-actions">
+          <div class="session-controls" id="sessionControls">
+            <span class="session-chip" id="sessionChip" hidden>
+              <span class="session-chip-dot" aria-hidden="true"></span>
+              <span class="session-chip-label" id="sessionChipLabel">Session</span>
+              <span class="session-chip-time" id="sessionChipTime">00:00</span>
+            </span>
+            <button type="button" class="btn btn-primary session-btn" id="sessionPrimaryBtn">
+              Start Session
+            </button>
+            <button type="button" class="btn btn-ghost session-btn" id="sessionsListBtn" hidden>
+              Sessions
+            </button>
+          </div>
           <button type="button" class="status-pill status-pill--calibrated" id="calibratedPill" aria-expanded="false" aria-controls="calibratedDetail" style="display:none">
             <span class="status-pill-icon" aria-hidden="true">&#10003;</span>
             <span class="status-pill-copy">
@@ -221,6 +234,30 @@
         <h2>Physiological signals (real-time)</h2>
         <canvas id="liveChart" height="120"></canvas>
       </section>
+
+      <!-- ── P1: Session start dialog ──────────────────────────────────────── -->
+      <div class="breathing-modal-backdrop" id="sessionStartBackdrop" hidden></div>
+      <div class="breathing-modal session-start-modal" id="sessionStartModal"
+           role="dialog" aria-modal="true" aria-labelledby="sessionStartTitle" hidden>
+        <div class="bm-header">
+          <h2 id="sessionStartTitle">Start a monitoring session</h2>
+          <button type="button" class="guide-close" id="sessionStartCloseBtn"
+                  aria-label="Cancel">&times;</button>
+        </div>
+        <div class="bm-body">
+          <p class="session-start-copy">
+            A fresh personal baseline will be measured for this person. Nothing from a previous
+            session carries over.
+          </p>
+          <label class="session-label-field">
+            <span>Name or label (optional)</span>
+            <input type="text" id="sessionLabelInput" maxlength="64"
+                   placeholder="e.g. Visitor 12" autocomplete="off" />
+          </label>
+          <button type="button" class="btn btn-primary btn-start-exercise"
+                  id="sessionStartConfirmBtn">Start session</button>
+        </div>
+      </div>
 
       <!-- ── Feature 2: Breathing Exercise Modal ───────────────────────────── -->
       <div class="breathing-modal-backdrop" id="breathingBackdrop" hidden></div>

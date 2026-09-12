@@ -3306,3 +3306,111 @@ body {
     animation: none !important;
   }
 }
+
+/* ── P1: Session lifecycle controls ─────────────────────────────────────────
+   Header session chip + primary action, and the start-session dialog. Added at
+   the end of the file; no rule above this point is modified. */
+.session-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.session-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-elevated);
+  color: var(--ink);
+  font-size: 12px;
+  letter-spacing: 0.02em;
+}
+
+.session-chip[hidden] { display: none; }
+
+.session-chip-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--muted);
+  flex: 0 0 auto;
+}
+
+.session-chip.is-recording .session-chip-dot {
+  background: var(--calm);
+  animation: session-chip-pulse 1.6s ease-in-out infinite;
+}
+
+.session-chip-label {
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.session-chip-time {
+  font-family: 'JetBrains Mono', Consolas, monospace;
+  color: var(--muted);
+}
+
+@keyframes session-chip-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%      { opacity: 0.45; transform: scale(0.8); }
+}
+
+.session-btn {
+  white-space: nowrap;
+}
+
+.session-btn[hidden] { display: none; }
+
+.btn.is-danger {
+  background: var(--anxiety);
+  border-color: var(--anxiety);
+  color: var(--bg-base);
+}
+
+.btn.is-danger:hover {
+  filter: brightness(1.08);
+}
+
+.session-start-modal .session-start-copy {
+  color: var(--muted);
+  margin: 0 0 16px;
+  line-height: 1.5;
+}
+
+.session-label-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 18px;
+  color: var(--muted);
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.session-label-field input {
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-base);
+  color: var(--ink);
+  font: inherit;
+  font-size: 14px;
+  text-transform: none;
+  letter-spacing: normal;
+}
+
+.session-label-field input:focus {
+  outline: none;
+  border-color: var(--recovery);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .session-chip.is-recording .session-chip-dot { animation: none; }
+}

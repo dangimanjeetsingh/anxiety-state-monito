@@ -34,3 +34,7 @@ def model_path() -> Path:
 
 def scaler_path() -> Path:
     return ml_dir() / "scaler.pkl"
+
+
+def sessions_dir() -> Path:
+    return ensure_dir(data_dir() / "sessions")

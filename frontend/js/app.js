@@ -72,6 +72,18 @@ const RC_STATE_CHANGE   = document.getElementById("rcStateChange");
 const RC_STATE_DETAIL   = document.getElementById("rcStateDetail");
 const RC_DURATION_VAL   = document.getElementById("rcDurationVal");
 
+
+// ── Feature: Session lifecycle ────────────────────────────────────
+const SESSION_PRIMARY_BTN   = document.getElementById("sessionPrimaryBtn");
+const SESSION_CHIP          = document.getElementById("sessionChip");
+const SESSION_CHIP_LABEL    = document.getElementById("sessionChipLabel");
+const SESSION_CHIP_TIME     = document.getElementById("sessionChipTime");
+const SESSION_START_BACKDROP= document.getElementById("sessionStartBackdrop");
+const SESSION_START_MODAL   = document.getElementById("sessionStartModal");
+const SESSION_START_CLOSE   = document.getElementById("sessionStartCloseBtn");
+const SESSION_START_CONFIRM = document.getElementById("sessionStartConfirmBtn");
+const SESSION_LABEL_INPUT   = document.getElementById("sessionLabelInput");
+
 // ── Chart ────────────────────────────────────────────────────────────────────
 const MAX_PTS = 60;
 let chart;
@@ -379,6 +391,24 @@ function updateTrend(el, history, threshold) {
 // ── Calibration Status ────────────────────────────────────────────────────────
 function setCalibrationStatus(d) {
   if (!CAL_BANNER || !CAL_TITLE || !CAL_MESSAGE || !CAL_STATUS) return;
+
+  // NOTE(plan): outside an active session there is no calibration to report,
+  // so the banner explains the session state instead of the baseline state.
+  if (!(d.session && d.session.recording === true)) {
+    CAL_BANNER.classList.remove("is-ready");
+    CAL_BANNER.classList.add("is-waiting");
+    CAL_TITLE.textContent = "No monitoring session running";
+    CAL_MESSAGE.textContent =
+      "Live sensor values are shown for a hardware check. Start a session to measure a personal baseline.";
+    CAL_STATUS.textContent = "Idle";
+    if (STATUS_STRIP) {
+      STATUS_STRIP.style.display = "none";
+      CAL_BANNER.style.display = "flex";
+    }
+    // The calibrated pill describes a live baseline; there is none between sessions.
+    if (CALIBRATED_PILL) CALIBRATED_PILL.style.display = "none";
+    return;
+  }
 
   const conn = (d.connection || "").toLowerCase();
   const connected = conn === "connected" || conn === "mock";
@@ -814,6 +844,8 @@ let lastData = null;
 
 function render(d) {
   lastData = d;
+  updateSessionControls(d);
+  const recording = !!(d.session && d.session.recording === true);
   const age = d.server_time ? ((Date.now()/1000 - d.server_time).toFixed(1) + "s old") : "?";
   setCalibrationStatus(d);
   updatePredictionBanner(d);
@@ -843,7 +875,7 @@ function render(d) {
     updateTrend(GSR_TREND, gsrHistory, 15);
   }
 
-  const calibrating = !d.calibrated && (conn === "connected" || conn === "mock");
+  const calibrating = recording && !d.calibrated && (conn === "connected" || conn === "mock");
   if (STATE_EL) {
     STATE_EL.textContent = calibrating ? "CALIBRATING" : (d.state || "—");
     STATE_EL.classList.toggle("state--compact", calibrating);
@@ -870,10 +902,26 @@ function render(d) {
       ? "Sit calmly — prediction starts after calibration"
       : "Rules: " + (d.rule_state||"—") + " · ML: " + (d.ml_state||"—") + " · " + (d.fusion_source||"—");
 
+  // Outside an active session the readings are a sensor check only: no state,
+  // no prediction strip, no breathing prompt.
+  if (!recording) {
+    if (STATE_EL) { STATE_EL.textContent = "IDLE"; STATE_EL.classList.add("state--compact"); }
+    if (META_EL) META_EL.textContent = "No session running — press Start Session to begin";
+    if (BP_PROMPT) BP_PROMPT.style.display = "none";
+    if (PRED_BANNER) PRED_BANNER.style.display = "none";
+    // No state class: the per-state captions and microcopy describe a reading
+    // that does not exist outside a session, so none of them should show.
+    if (STATE_CARD) {
+      STATE_CARD.classList.remove("state-calm","state-stress","state-anxiety","state-recovery","state-active","state-calibrating");
+    }
+  }
+
   setConn(d.connection, d.connection_detail);
   setSensorWarning(d.sensor_warning || null);
 
-  if (BASELINE_INFO)
+  if (BASELINE_INFO && !recording)
+    BASELINE_INFO.textContent = "No baseline — start a session to measure one";
+  else if (BASELINE_INFO)
     BASELINE_INFO.textContent = d.calibrated && d.baseline_hr != null && d.baseline_gsr != null
       ? "Baseline HR " + Math.round(d.baseline_hr) + " · GSR " + Math.round(d.baseline_gsr)
       : "Baseline calibration in progress — sit calmly";
@@ -904,7 +952,7 @@ function render(d) {
     chart.update("none");
   }
 
-  if (BP_PROMPT) {
+  if (BP_PROMPT && recording) {
     const notSuppressed = Date.now() > bpDismissedUntil;
     if (isElevatedForBreathing(d) && notSuppressed && !exerciseRunning && !recoveryActive && (!BM_MODAL || BM_MODAL.hidden)) {
       BP_PROMPT.style.display = "flex";
@@ -927,6 +975,92 @@ function render(d) {
     }
   }
 }
+
+// ── Feature: Session lifecycle — controls, dialog, phase gating ──────────────
+let sessionPhase = "IDLE";          // mirror of d.session.phase, for click handling only
+let lastSessionId = null;
+
+function fmtClock(totalSec) {
+  var s = Math.max(0, Math.round(totalSec));
+  var m = Math.floor(s / 60);
+  return String(m).padStart(2, "0") + ":" + String(s % 60).padStart(2, "0");
+}
+
+function updateSessionControls(d) {
+  var sess = d.session || { phase: "IDLE" };
+  sessionPhase = sess.phase;
+  lastSessionId = sess.id || lastSessionId;
+
+  if (SESSION_PRIMARY_BTN) {
+    if (sess.phase === "IDLE")            SESSION_PRIMARY_BTN.textContent = "Start Session";
+    else if (sess.phase === "ENDED")      SESSION_PRIMARY_BTN.textContent = "Start New Session";
+    else                                  SESSION_PRIMARY_BTN.textContent = "End Session";
+    SESSION_PRIMARY_BTN.classList.toggle("is-danger", sess.recording === true);
+  }
+  if (SESSION_CHIP) {
+    SESSION_CHIP.hidden = (sess.phase === "IDLE");
+    if (SESSION_CHIP_LABEL) SESSION_CHIP_LABEL.textContent = sess.label || "Unlabelled session";
+    if (SESSION_CHIP_TIME)  SESSION_CHIP_TIME.textContent = fmtClock(sess.elapsed_s || 0);
+    SESSION_CHIP.classList.toggle("is-recording", sess.recording === true);
+  }
+  document.body.classList.toggle("session-idle", sess.phase === "IDLE");
+  document.body.classList.toggle("session-ended", sess.phase === "ENDED");
+}
+
+function openSessionStartModal() {
+  if (!SESSION_START_MODAL) return;
+  SESSION_START_MODAL.hidden = false;
+  if (SESSION_START_BACKDROP) SESSION_START_BACKDROP.hidden = false;
+  if (SESSION_LABEL_INPUT) { SESSION_LABEL_INPUT.value = ""; SESSION_LABEL_INPUT.focus(); }
+}
+
+function closeSessionStartModal() {
+  if (SESSION_START_MODAL) SESSION_START_MODAL.hidden = true;
+  if (SESSION_START_BACKDROP) SESSION_START_BACKDROP.hidden = true;
+}
+
+// P6 implements the report view; P1 only records that a session finished.
+function onSessionEnded(id) {
+  console.log("Session ended:", id);
+}
+
+if (SESSION_PRIMARY_BTN) {
+  SESSION_PRIMARY_BTN.addEventListener("click", function () {
+    if (sessionPhase === "IDLE" || sessionPhase === "ENDED") {
+      openSessionStartModal();
+    } else {
+      if (!confirm("End this monitoring session and generate its report?")) return;
+      SESSION_PRIMARY_BTN.disabled = true;
+      fetch("/session/end", { method: "POST" })
+        .then(function (r) { return r.json(); })
+        .then(function (j) { if (j.session_id) onSessionEnded(j.session_id); })
+        .catch(function (e) { console.error("end session:", e); })
+        .then(function () { SESSION_PRIMARY_BTN.disabled = false; });
+    }
+  });
+}
+
+if (SESSION_START_CONFIRM) {
+  SESSION_START_CONFIRM.addEventListener("click", function () {
+    var label = SESSION_LABEL_INPUT ? SESSION_LABEL_INPUT.value : "";
+    SESSION_START_CONFIRM.disabled = true;
+    fetch("/session/start", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ label: label }),
+    })
+      .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, body: j }; }); })
+      .then(function (res) {
+        if (res.ok) closeSessionStartModal();
+        else alert("Could not start a session: " + (res.body.error || "unknown error"));
+      })
+      .catch(function (e) { console.error("start session:", e); })
+      .then(function () { SESSION_START_CONFIRM.disabled = false; });
+  });
+}
+
+if (SESSION_START_CLOSE) SESSION_START_CLOSE.addEventListener("click", closeSessionStartModal);
+if (SESSION_START_BACKDROP) SESSION_START_BACKDROP.addEventListener("click", closeSessionStartModal);
 
 // ── SSE Stream ────────────────────────────────────────────────────────────────
 function initStream() {

@@ -122,6 +122,24 @@ class PredictConfig:
 
 
 @dataclass
+class SessionConfig:
+    """Session lifecycle and reporting."""
+
+    # Multiplier on calibration_seconds after which calibration is reported as stalled.
+    calibration_stall_factor: float = field(
+        default_factory=lambda: _env_float("ANXIETY_CALIB_STALL_FACTOR", 2.0)
+    )
+    # Seconds between .partial.json checkpoint writes.
+    checkpoint_interval_s: float = field(
+        default_factory=lambda: _env_float("ANXIETY_SESSION_CHECKPOINT_S", 10.0)
+    )
+    # Auto-start a session on boot (exhibition convenience). Default OFF.
+    autostart: bool = field(
+        default_factory=lambda: _env_bool("ANXIETY_SESSION_AUTOSTART", False)
+    )
+
+
+@dataclass
 class AppConfig:
     serial: SerialConfig = field(default_factory=SerialConfig)
     baseline: BaselineConfig = field(default_factory=BaselineConfig)
@@ -130,6 +148,7 @@ class AppConfig:
     ml: MlConfig = field(default_factory=MlConfig)
     smoothing: SmoothingConfig = field(default_factory=SmoothingConfig)
     predict: PredictConfig = field(default_factory=PredictConfig)
+    session: SessionConfig = field(default_factory=SessionConfig)
     csv_log_interval_s: float = field(default_factory=lambda: _env_float("ANXIETY_CSV_LOG_INTERVAL", 1.0))
 
 

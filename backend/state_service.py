@@ -22,6 +22,11 @@ from backend.pattern_detector import PatternDetector
 from backend.pipeline import DataPipeline
 from backend.prediction_smoother import PredictionSmoother
 from backend.rules import RulesEngine
+from backend.session_manager import (
+    PHASE_CALIBRATING,
+    PHASE_IDLE,
+    SessionManager,
+)
 from backend.state_machine import StateMachine
 from backend.trend_predictor import TrendPrediction, TrendPredictor
 
@@ -48,6 +53,7 @@ class DashboardSnapshot:
     pattern: Optional[str]
     alert: Optional[str]
     prediction: Optional[Dict[str, Any]] = None
+    session: Optional[Dict[str, Any]] = None
 
 
 class AnxietyStateService:
@@ -73,6 +79,7 @@ class AnxietyStateService:
         self.pattern_detector = PatternDetector()
         self.alert_system = AlertSystem()
         self.trend_predictor = TrendPredictor(config)
+        self.sessions = SessionManager()
         self._prev_rule_state: Optional[str] = None
         self._latest_hr: Optional[float] = None
         self._latest_gsr: Optional[float] = None
@@ -114,6 +121,8 @@ class AnxietyStateService:
         )
         self._reader.start()
         LOG.info("Bluetooth reader thread started (mock=%s)", self._cfg.serial.use_mock)
+        if self._cfg.session.autostart:
+            self.start_session(label=None)
 
     def stop_reader(self) -> None:
         if self._reader:
@@ -197,6 +206,13 @@ class AnxietyStateService:
             # Always update latest raw values immediately (before any smoothing)
             self._snapshot.hr = round(sample.hr, 1)
             self._snapshot.gsr = round(sample.gsr, 1)
+            # Session gating: outside CALIBRATING/MONITORING we ingest and log raw
+            # values (so the dashboard can act as a sensor check) but run no
+            # evaluation and keep no session state.
+            if not self.sessions.state.recording:
+                self._maybe_log_csv(sample, None, None, None, None, None, None,
+                                    self._snapshot.connection)
+                return
             out = self.pipeline.push(sample.hr, sample.gsr)
             if out is None:
                 self._maybe_log_csv(sample, None, None, None, None, None, None, None)
@@ -204,6 +220,8 @@ class AnxietyStateService:
             hr, gsr = out
             now = time.time()
             self.baseline.update_with_sample(now, hr, gsr)
+            if self.baseline.is_ready() and self.sessions.phase == PHASE_CALIBRATING:
+                self.sessions.mark_calibrated(now)
             self._latest_hr = hr
             self._latest_gsr = gsr
             window = self.pipeline.window_points()
@@ -339,7 +357,9 @@ class AnxietyStateService:
             return self._snapshot
 
     def to_json_dict(self) -> Dict[str, Any]:
-        s = self.get_snapshot()
+        with self._lock:
+            s = self._snapshot
+            session_block = self._session_dict(time.time())
         return {
             "server_time": time.time(),
             "hr": round(s.hr, 1) if s.hr is not None else None,
@@ -360,17 +380,89 @@ class AnxietyStateService:
             "pattern": s.pattern,
             "alert": s.alert,
             "prediction": s.prediction if s.prediction is not None else {"active": False},
+            "session": session_block,
         }
+
+    def _session_dict(self, now: float) -> Dict[str, Any]:
+        """Build the `session` block. Caller must hold the lock."""
+        st = self.sessions.state
+        if st.phase == PHASE_IDLE:
+            return {
+                "phase": PHASE_IDLE, "id": None, "label": None, "started_at": None,
+                "elapsed_s": 0.0, "monitored_s": 0.0,
+                "recording": False, "evaluating": False,
+                "calibration": None, "live": None,
+            }
+        return {
+            "phase": st.phase,
+            "id": st.id,
+            "label": st.label,
+            "started_at": st.started_at,
+            "elapsed_s": round(st.elapsed_s(now), 1),
+            "monitored_s": round(st.monitored_s(now), 1),
+            "recording": st.recording,
+            "evaluating": st.evaluating,
+            "calibration": self._calibration_dict(now),   # returns None until P2
+            "live": None,                                  # filled in P3
+        }
+
+    def _calibration_dict(self, now: float) -> Optional[Dict[str, Any]]:
+        """Calibration telemetry. Implemented in P2; None until then."""
+        # NOTE(plan): P1 stub — P2 replaces this with real telemetry.
+        return None
 
     def reset_session(self) -> None:
         with self._lock:
+            self._reset_session_locked()
+
+    def _reset_session_locked(self) -> None:
+        """Reset every per-session subsystem. Caller must hold the lock."""
+        self.pipeline.reset()
+        self.baseline.reset()
+        self.smoother.reset()
+        self.fsm = StateMachine()
+        self.pattern_detector = PatternDetector()
+        self.alert_system = AlertSystem()
+        self.trend_predictor.reset()
+        self._prev_rule_state = None
+        self._latest_hr = None
+        self._latest_gsr = None
+
+    def start_session(self, label: Optional[str] = None) -> Dict[str, Any]:
+        """Start a fresh session. Returns {"ok": bool, ...}."""
+        with self._lock:
+            if self.sessions.state.active:
+                return {"ok": False, "error": "session_active",
+                        "session_id": self.sessions.state.id}
+            now = time.time()
+            self._reset_session_locked()
+            st = self.sessions.start(label, now)
+            self._snapshot.state = "CALM"
+            self._snapshot.calibrated = False
+            self._snapshot.features = None
+            # NOTE(plan): also clear the displayed baseline so the previous
+            # person's values are never shown against a new session.
+            self._snapshot.baseline_hr = None
+            self._snapshot.baseline_gsr = None
+            return {"ok": True, "session_id": st.id, "phase": st.phase, "label": st.label}
+
+    def end_session(self) -> Dict[str, Any]:
+        """End the active session. Returns {"ok": bool, ...}."""
+        with self._lock:
+            st = self.sessions.end(time.time())
+            if st is None:
+                return {"ok": False, "error": "no_active_session"}
+            # P3 attaches report finalization here.
+            return {"ok": True, "session_id": st.id, "reliability": None}
+
+    def restart_calibration(self) -> Dict[str, Any]:
+        """Restart baseline measurement without ending the session."""
+        with self._lock:
+            if not self.sessions.restart_calibration(time.time()):
+                return {"ok": False, "error": "not_calibrating"}
             self.pipeline.reset()
             self.baseline.reset()
-            self.smoother.reset()
-            self.fsm = StateMachine()
-            self.pattern_detector = PatternDetector()
-            self.alert_system = AlertSystem()
-            self.trend_predictor.reset()
-            self._prev_rule_state = None
-            self._latest_hr = None
-            self._latest_gsr = None
+            self._snapshot.calibrated = False
+            self._snapshot.features = None
+            return {"ok": True, "session_id": self.sessions.state.id,
+                    "attempts": self.sessions.state.calibration_attempts}

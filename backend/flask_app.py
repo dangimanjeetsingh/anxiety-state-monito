@@ -39,6 +39,34 @@ def create_app(service: "AnxietyStateService") -> Flask:
         service.log_exercise_event(str(event))
         return jsonify({"status": "ok", "event": event})
 
+    @app.route("/session/start", methods=["POST"])
+    def session_start():
+        payload = request.get_json(silent=True) or {}
+        res = service.start_session(label=payload.get("label"))
+        if not res.get("ok"):
+            return jsonify({"error": res.get("error"),
+                            "session_id": res.get("session_id")}), 409
+        return jsonify({"session_id": res["session_id"], "phase": res["phase"],
+                        "label": res["label"]}), 201
+
+    @app.route("/session/end", methods=["POST"])
+    def session_end():
+        res = service.end_session()
+        if not res.get("ok"):
+            return jsonify({"error": res.get("error")}), 409
+        return jsonify({
+            "session_id": res["session_id"],
+            "report_url": "/session/" + res["session_id"] + "/report",
+            "reliability": res.get("reliability"),
+        })
+
+    @app.route("/session/calibration/restart", methods=["POST"])
+    def session_calibration_restart():
+        res = service.restart_calibration()
+        if not res.get("ok"):
+            return jsonify({"error": res.get("error")}), 409
+        return jsonify({"session_id": res["session_id"], "attempts": res["attempts"]})
+
     @app.route("/stream")
     def stream():
         """Server-Sent Events: one JSON payload per second."""
