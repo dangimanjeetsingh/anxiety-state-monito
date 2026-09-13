@@ -371,12 +371,21 @@ class BaselineTracker:
 # Feature Quality Scoring
 # ---------------------------------------------------------------------------
 
+# The sliding window is PipelineConfig.sliding_window_seconds long at ~1 Hz, so a
+# full window holds this many samples. The quality score previously divided by 60,
+# which a 30-second window can never reach: confidence was capped at 0.8 and the
+# downstream gates (rules < 0.5, fusion >= 0.75, alerts > 0.6) were scored against
+# a ceiling they could not clear.
+_OPTIMAL_WINDOW_SAMPLES = 30.0
+
+
 def compute_feature_quality_score(
     num_raw_samples: int,
     num_valid_hrs: int,
     num_valid_gsrs: int,
     std_hr: float,
     std_gsr: float,
+    optimal_samples: float = _OPTIMAL_WINDOW_SAMPLES,
 ) -> float:
     """Computes a 0.0 to 1.0 quality score for the current feature window.
     
@@ -389,8 +398,8 @@ def compute_feature_quality_score(
         return 0.0
         
     # 1. Volume Score (max 1.0)
-    # Assumes optimal window is ~60 samples
-    volume_score = min(1.0, num_raw_samples / 60.0)
+    # Measured against a full sliding window, not an unreachable constant.
+    volume_score = min(1.0, num_raw_samples / max(1.0, optimal_samples))
     
     # 2. Noise Score (max 1.0)
     # How much of the raw data survived outlier filtering?
@@ -415,6 +424,11 @@ def compute_feature_quality_score(
 # Minimum number of samples required in the sliding window.
 # Prevents noisy / near-empty windows from producing meaningless features.
 _MIN_WINDOW_SAMPLES = 10
+
+# Physiologically plausible HR band for outlier rejection. Kept in step with
+# PipelineConfig.hr_min / hr_max so the two stages agree on what is a real reading.
+_HR_PLAUSIBLE_MIN = 40.0
+_HR_PLAUSIBLE_MAX = 210.0
 
 
 def compute_features(
@@ -461,8 +475,11 @@ def compute_features(
     raw_gsrs = [p.gsr for p in window]
 
     # --- Outlier Removal ---
-    # HR: Physiological clamp
-    hrs = [h for h in raw_hrs if 40.0 <= h <= 180.0]
+    # HR: physiological clamp. This matches PipelineConfig's accepted range; a
+    # tighter ceiling here silently discarded 180-210 bpm readings that the
+    # pipeline had already accepted, and could suppress prediction entirely
+    # during the most extreme tachycardia.
+    hrs = [h for h in raw_hrs if _HR_PLAUSIBLE_MIN <= h <= _HR_PLAUSIBLE_MAX]
 
     # GSR: IQR-based filtering
     gsrs = []

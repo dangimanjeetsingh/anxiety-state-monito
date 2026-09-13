@@ -45,13 +45,33 @@ class MlPredictor:
             LOG.error("Failed to load model: %s", e)
             self._model = None
             return
+        # A scaler is applied ONLY if the model was trained with one. ml/train.py
+        # fits the RandomForest on raw feature vectors and saves no scaler, so a
+        # scaler file found on disk is a leftover from an earlier pipeline.
+        # Applying it silently z-scored every input and collapsed the model to a
+        # single class (0% ANXIETY recall), so a stale file is now ignored.
         if self._scaler_path and self._scaler_path.is_file():
-            try:
-                self._scaler = joblib.load(self._scaler_path)
-                LOG.info("Loaded scaler from %s", self._scaler_path)
-            except Exception as e:
-                LOG.warning("Scaler load failed (%s), using raw features", e)
-                self._scaler = None
+            if self._trained_with_scaler():
+                try:
+                    self._scaler = joblib.load(self._scaler_path)
+                    LOG.info("Loaded scaler from %s", self._scaler_path)
+                except Exception as e:
+                    LOG.warning("Scaler load failed (%s), using raw features", e)
+                    self._scaler = None
+            else:
+                LOG.warning(
+                    "Ignoring %s: the current model was trained on raw features. "
+                    "Delete the file or retrain with a scaler to silence this.",
+                    self._scaler_path.name,
+                )
+
+    def _trained_with_scaler(self) -> bool:
+        """True only when this model expects scaled input.
+
+        ml/train.py marks a scaled model by setting `saarthi_scaled_` on the
+        estimator it saves. Absent that marker the model is raw-trained.
+        """
+        return bool(getattr(self._model, "saarthi_scaled_", False))
 
     @property
     def available(self) -> bool:

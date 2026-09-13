@@ -99,6 +99,15 @@ class PipelineConfig:
 @dataclass
 class MlConfig:
     confidence_fuse: float = field(default_factory=lambda: _env_float("ANXIETY_ML_CONFIDENCE", 0.75))
+    # May the binary model raise the rules' verdict from STRESS to ANXIETY?
+    # Measured against held-out segments, the model reports ANXIETY for mild
+    # elevation (HR +8, GSR +50) with the same confidence as for full arousal
+    # (HR +35, GSR +220) - median 0.799 vs 0.802. It separates "elevated" from
+    # "calm" well, but carries no information about severity, so by default it
+    # confirms the rules rather than overriding their severity judgement.
+    allow_escalation: bool = field(
+        default_factory=lambda: _env_bool("ANXIETY_ML_ALLOW_ESCALATION", False)
+    )
 
 
 @dataclass

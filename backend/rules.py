@@ -29,16 +29,27 @@ class RulesEngine:
         strong_sympathetic = (
             fv.delta_hr > th.anxiety_delta_hr and fv.delta_gsr > th.anxiety_delta_gsr
         )
+        # De-escalation takes priority over the raw level: the 30 s window mean
+        # trails the live signal, so both deltas stay above the anxiety thresholds
+        # for roughly a window after the wearer has actually started to settle.
+        # Reporting ANXIETY through a clear, sustained fall kept the dashboard a
+        # full minute behind the person. Falling HR from an elevated state steps
+        # down one level and lets the state machine route ANXIETY -> RECOVERY.
+        de_escalating = (
+            prev in ("STRESS", "ANXIETY") and fv.hr_trend < th.recovery_hr_trend
+        )
+
         if strong_sympathetic:
-            # Activity: HR rising fast, GSR not matching -> likely movement, not panic
-            if fv.hr_trend > th.activity_hr_trend and fv.delta_gsr < th.activity_gsr_ceiling:
-                state = "ACTIVE"
-            else:
-                state = "ANXIETY"
+            # NOTE: the previous motion guard here tested `delta_gsr < activity_gsr_ceiling`
+            # (25) inside a branch that already requires delta_gsr > anxiety_delta_gsr (80).
+            # That is unsatisfiable, so it never ran. Motion is separated below, where the
+            # GSR level genuinely is low; at full sympathetic arousal on both channels
+            # there is no level-based way to tell movement from arousal.
+            state = "STRESS" if de_escalating else "ANXIETY"
         elif fv.hr_trend > th.activity_hr_trend and fv.delta_gsr < th.activity_gsr_ceiling:
             # Activity without full sympathetic GSR surge
             state = "ACTIVE"
-        elif prev in ("STRESS", "ANXIETY") and fv.hr_trend < th.recovery_hr_trend:
+        elif de_escalating:
             # Recovery: was elevated, HR now falling
             if fv.delta_hr < th.stress_delta_hr and fv.delta_gsr < th.stress_delta_gsr:
                 state = "CALM"

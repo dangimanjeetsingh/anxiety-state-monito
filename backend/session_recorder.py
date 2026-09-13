@@ -257,8 +257,12 @@ class SessionRecorder:
 
         # --- state accounting (by elapsed time, so gaps cannot inflate durations) ---
         if state:
+            # The elapsed interval belongs to the state that was actually held
+            # during it, which is the one recorded before this sample. Crediting
+            # it to the new state moved ~1 s per transition across the boundary.
             if 0.0 < dt <= DISCONNECT_GAP_S:
-                self.state_seconds[state] = self.state_seconds.get(state, 0.0) + dt
+                held = prev_state if prev_state is not None else state
+                self.state_seconds[held] = self.state_seconds.get(held, 0.0) + dt
             if state != self.current_state:
                 if self.current_state is not None:
                     self._append(self.transitions, {

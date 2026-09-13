@@ -386,8 +386,12 @@ class AnxietyStateService:
                 # NOTE(plan): only count rejects once monitoring has begun. Every
                 # sample during CALIBRATING takes this path by design, and counting
                 # those would report a clean session as mostly-rejected data.
-                if self._recorder is not None and self.sessions.state.evaluating:
-                    self._recorder.note_rejected_sample()
+                if self._recorder is not None:
+                    if self.sessions.state.evaluating:
+                        self._recorder.note_rejected_sample()
+                    # Checkpoint here as well: a session interrupted during
+                    # calibration would otherwise leave nothing to recover.
+                    self._maybe_checkpoint(now)
                 self._maybe_log_csv(sample, hr, gsr, None, None, None, None, None)
                 return
             try:
@@ -753,6 +757,11 @@ class AnxietyStateService:
         with self._lock:
             if not self.sessions.state.recording or self._recorder is None:
                 return {"ok": False, "error": "no_active_session"}
+            if not self.sessions.state.evaluating:
+                # Before the baseline locks there is nothing to measure the
+                # exercise against: no deltas, no state, and a different time
+                # origin. Recording it would produce an all-null entry.
+                return {"ok": False, "error": "not_monitoring"}
             now = time.time()
             if event == "start":
                 idx = self._recorder.intervention_start(now, technique, planned_duration_s)

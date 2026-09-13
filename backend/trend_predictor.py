@@ -55,6 +55,32 @@ class TrendPrediction:
         }
 
 
+def _time_to_threshold(current: float, threshold: float, rate: float) -> Optional[float]:
+    """Seconds until *current* reaches *threshold* at *rate* per second.
+
+    0.0 when already there, None when the trend will never get there.
+    """
+    if current >= threshold:
+        return 0.0
+    if rate <= 1e-6:
+        return None
+    return (threshold - current) / rate
+
+
+def _time_to_any(*channels) -> Optional[float]:
+    """Soonest channel to cross its threshold (an OR rule)."""
+    times = [t for t in (_time_to_threshold(*c) for c in channels) if t is not None]
+    return min(times) if times else None
+
+
+def _time_to_all(*channels) -> Optional[float]:
+    """Last channel to cross its threshold (an AND rule); None if any never will."""
+    times = [_time_to_threshold(*c) for c in channels]
+    if any(t is None for t in times):
+        return None
+    return max(times)
+
+
 class TrendPredictor:
     """
     Evaluates FeatureVector and current FSM state to provide an explainable
@@ -117,18 +143,11 @@ class TrendPredictor:
         # STRESS / RECOVERY -> target ANXIETY
         # ANXIETY -> already at highest severity, no upward prediction
         target_state: Optional[str] = None
-        target_stress_index: float = 0.0
 
         w_hr = self._cfg.baseline.stress_w_hr
         w_gsr = self._cfg.baseline.stress_w_gsr
         th = self._cfg.thresholds
 
-        # Stress threshold baseline:
-        # Stress rule boundary: delta_hr > stress_delta_hr (6.0) or delta_gsr > stress_delta_gsr (40.0)
-        # In stress_index metric: delta_hr * w_hr + delta_gsr * w_gsr
-        stress_threshold_index = (th.stress_delta_hr * w_hr) + (th.stress_delta_gsr * w_gsr)
-        # Anxiety rule boundary: delta_hr > anxiety_delta_hr (12.0) and delta_gsr > anxiety_delta_gsr (80.0)
-        anxiety_threshold_index = (th.anxiety_delta_hr * w_hr) + (th.anxiety_delta_gsr * w_gsr)
 
         fsm_state = (current_state or "CALM").upper()
         pipeline_state = _more_severe(fsm_state, input_state or fsm_state)
@@ -144,10 +163,8 @@ class TrendPredictor:
         # Forecast the next transition for the displayed (FSM) state.
         if fsm_state == "CALM":
             target_state = "STRESS"
-            target_stress_index = stress_threshold_index
         elif fsm_state in ("STRESS", "RECOVERY", "ACTIVE"):
             target_state = "ANXIETY"
-            target_stress_index = anxiety_threshold_index
         else:
             self._last_prediction = TrendPrediction(active=False)
             return self._last_prediction
@@ -174,19 +191,32 @@ class TrendPredictor:
             self._last_prediction = TrendPrediction(active=False)
             return self._last_prediction
 
-        d_stress_dt = (d_hr_dt * w_hr) + (d_gsr_dt * w_gsr)
+        # Forecast the boundary the rules engine actually tests, per channel.
+        # STRESS fires on delta_hr > X OR delta_gsr > Y, so the first channel to
+        # arrive decides. ANXIETY needs both, so the later channel decides. The
+        # previous version compared a single summed index against both rules,
+        # which warned of an ANXIETY that an HR-only rise can never reach and
+        # under-stated a GSR-driven STRESS that had already crossed.
+        if target_state == "STRESS":
+            sec_to_next = _time_to_any(
+                (fv.delta_hr, th.stress_delta_hr, d_hr_dt),
+                (fv.delta_gsr, th.stress_delta_gsr, d_gsr_dt),
+            )
+        else:
+            sec_to_next = _time_to_all(
+                (fv.delta_hr, th.anxiety_delta_hr, d_hr_dt),
+                (fv.delta_gsr, th.anxiety_delta_gsr, d_gsr_dt),
+            )
 
-        if d_stress_dt <= 1e-4:
+        if sec_to_next is None:
             self._last_prediction = TrendPrediction(active=False)
             return self._last_prediction
 
-        needed_delta = target_stress_index - fv.stress_index
-        if needed_delta <= 0:
+        if sec_to_next <= 0.0:
             # Rule thresholds are already met; the FSM may still be holding.
             sec_to_next = 1.0
             basis_str = "threshold crossed, awaiting state confirmation"
         else:
-            sec_to_next = needed_delta / d_stress_dt
             basis_str = "rising stress_index trend"
             if d_hr_dt > 0 and d_gsr_dt > 0:
                 basis_str = "rising HR & GSR trend"

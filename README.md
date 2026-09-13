@@ -1250,3 +1250,109 @@ been silently misaligned.
 | `ANXIETY_CALIB_STALL_FACTOR` | `2.0` | Multiple of the calibration window after which calibration is reported as stalled |
 | `ANXIETY_SESSION_CHECKPOINT_S` | `10.0` | Seconds between `.partial.json` checkpoint writes |
 | `ANXIETY_SESSION_AUTOSTART` | `false` | Start a session automatically on boot (exhibition convenience) |
+
+---
+
+## Accuracy corrections (post-review)
+
+A correctness review of the full inference chain found defects that meant the app was not
+reporting what it measured. Each is listed with the evidence that identified it and the fix.
+
+### The ML tier was applying a scaler the model was never trained with
+
+`ml/train.py` fits the RandomForest on raw feature vectors and saves no scaler, but
+`MlPredictor` was loading a leftover `ml/scaler.pkl` from an earlier pipeline and z-scoring
+every input. Replaying the model's own training data through the live path:
+
+| Inference path | Agreement with labels | ANXIETY recall |
+|---|---|---|
+| Raw features (as trained) | 91.4% | 80.7% |
+| Scaled by the stale file (as deployed) | 64.3% | **0.0%** |
+
+The deployed model returned `CALM` for all 5,302 samples, including all 1,894 labelled
+anxiety. `MlPredictor` now applies a scaler only when the estimator carries the
+`saarthi_scaled_` marker, and logs a warning when it ignores a stale file.
+
+### Feature confidence could never exceed 0.8
+
+`compute_feature_quality_score()` scored sample volume as `num_raw_samples / 60`, but the
+sliding window is `sliding_window_seconds` long at ~1 Hz and holds about 30 samples. Confidence
+was therefore capped at 0.8 and ran near 0.6, while every downstream gate was written for a
+0–1 scale:
+
+- `rules.py` demotes ANXIETY to STRESS and STRESS to CALM below 0.5
+- `fusion.py` requires `ml_confidence * feature_confidence >= 0.75`, i.e. the model needed
+  0.94 confidence to be heard at all — measured 0 passes in 45 on a textbook anxiety signal
+- `alert_system.py` requires confidence above 0.6 for a HIGH alert
+- the session report grades a mean below 0.45 as `LIMITED`
+
+The volume term is now measured against a full window (`_OPTIMAL_WINDOW_SAMPLES`). Typical
+confidence moved from ~0.62 to ~0.95.
+
+### A real arousal onset was reported as a sensor fault
+
+`PatternDetector` tested `std_hr > 15` before testing for `RAPID_STRESS_SPIKE`. A fast rise
+inside a 30 s window *is* high standard deviation — a 70→110 bpm step onset scores 20.0 — so
+every genuine spike was labelled `UNSTABLE_SIGNAL` and the spike branch never ran. Across
+recorded sessions, 32 of 38 episodes carried `UNSTABLE_SIGNAL` and `RAPID_STRESS_SPIKE` fired
+zero times. The spike check now runs before the variance gate: a structured directional change
+explains the variance, so only unexplained volatility is reported as unstable.
+
+### Early warnings forecast a threshold the rules do not use
+
+The STRESS rule fires on `delta_hr > 6` **or** `delta_gsr > 40`; the ANXIETY rule needs
+**both** `delta_hr > 12` **and** `delta_gsr > 80`. The forecaster compared a single summed
+stress index against both, so it under-stated a GSR-driven STRESS that had already crossed and
+promised an ANXIETY that an HR-only rise can never reach. It now projects each channel to its
+own threshold and combines them the way the rule does — soonest channel for OR, last channel
+for AND, and no forecast at all when a channel's trend will never arrive.
+
+### The displayed state lagged recovery by about a minute
+
+Because the rules read a 30 s window mean, both deltas stay above the anxiety thresholds for
+roughly a window after the wearer has started to settle, so ANXIETY was asserted through a
+clear sustained fall. Falling HR from an elevated state now steps down one level, letting the
+state machine route ANXIETY → RECOVERY. Against a scripted 60 s recovery, the reported state
+went from 100% ANXIETY to 50% STRESS / 43% ANXIETY / 6% RECOVERY.
+
+Some lag is inherent: the state describes a 30 s trailing mean and cannot lead it. With an
+instantaneous return to baseline, ANXIETY persists for about 30 s by construction.
+
+### The ML tier now corroborates rather than overrides
+
+The model is binary (CALM / ANXIETY) while the rules are multi-class. Measured against held-out
+segments it reports ANXIETY for mild elevation (HR +8, GSR +50) with the same confidence as for
+full arousal (HR +35, GSR +220) — median 0.799 against 0.802. It separates *elevated* from
+*calm* well but carries no information about severity, so unmuting it as an override turned a
+correctly-reported moderate-stress period into 100% ANXIETY.
+
+The model therefore confirms the rules' ANXIETY (`fusion_source: "both"`) and no longer promotes
+STRESS to ANXIETY on its own. Set `ANXIETY_ML_ALLOW_ESCALATION=1` to restore the overriding
+behaviour.
+
+### Smaller corrections
+
+- HR readings of 180–210 bpm were accepted by the pipeline and then silently discarded by the
+  feature stage's 40–180 clamp, which could suppress prediction entirely during extreme
+  tachycardia. The two stages now agree on the plausible range.
+- A motion guard in `rules.py` tested `delta_gsr < 25` inside a branch that already required
+  `delta_gsr > 80`; it was unsatisfiable and never ran. Removed, with the reasoning recorded.
+- Session state-time credited the interval spanning a transition to the *new* state. It is now
+  credited to the state actually held during it, so `sum(states.seconds)` matches the monitored
+  duration exactly.
+- A session interrupted during calibration left no checkpoint to recover; checkpoints are now
+  written during `CALIBRATING` as well.
+- A breathing exercise could be started during `CALIBRATING`, where there is no baseline to
+  measure against and a different time origin, producing an all-null record. It now returns
+  `409 not_monitoring`.
+
+### Known operational limit
+
+Two backend instances pointed at the same `data/logs/physio_log.csv` will interleave rows;
+there is no lock file. Run one instance per log.
+
+### Additional configuration variable
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `ANXIETY_ML_ALLOW_ESCALATION` | `false` | Allow the ML tier to raise the rules' verdict from STRESS to ANXIETY |

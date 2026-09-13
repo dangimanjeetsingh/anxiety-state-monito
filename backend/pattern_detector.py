@@ -41,19 +41,16 @@ class PatternDetector:
         while self.buffer and now_t - self.buffer[0][0] > self.window_seconds:
             self.buffer.popleft()
 
-        # 2. Evaluate Unstable Signal first (data quality gate)
-        # Using typical variance bounds (e.g., hr > 15, gsr > 50) or low confidence.
+        # 2. Low confidence is a genuine quality problem: nothing else is trustworthy.
         if getattr(fv, "confidence", 1.0) < 0.4:
             return "UNSTABLE_SIGNAL"
-        
-        std_hr = getattr(fv, "std_hr", 0.0)
-        std_gsr = getattr(fv, "std_gsr", 0.0)
-        if std_hr > 15.0 or std_gsr > 50.0:
-            return "UNSTABLE_SIGNAL"
 
-        # 3. RAPID_STRESS_SPIKE
-        # Look for a sharp delta_hr increase (> +8) and delta_gsr increase
-        # within the last 5-10 seconds.
+        # 3. RAPID_STRESS_SPIKE — checked BEFORE the variance gate.
+        # A fast rise inside the 30 s window *is* high std: a 70->110 bpm step
+        # onset scores std_hr = 20. Testing variance first therefore reported
+        # every real spike as a sensor fault and skipped this branch entirely.
+        # A spike is a directional, structured change, so when we can identify
+        # one the variance is explained rather than suspicious.
         past_5_10 = [
             item for item in self.buffer 
             if (now_t - 10.0) <= item[0] <= (now_t - 5.0)
@@ -67,7 +64,13 @@ class PatternDetector:
             if delta_hr_diff > 8.0 and delta_gsr_diff > 0.5:
                 return "RAPID_STRESS_SPIKE"
 
-        # 4. GRADUAL_STRESS_BUILD
+        # 4. Variance gate: unexplained volatility, i.e. not the spike above.
+        std_hr = getattr(fv, "std_hr", 0.0)
+        std_gsr = getattr(fv, "std_gsr", 0.0)
+        if std_hr > 15.0 or std_gsr > 50.0:
+            return "UNSTABLE_SIGNAL"
+
+        # 5. GRADUAL_STRESS_BUILD
         # Steady increase in stress_index over 20-40 seconds.
         past_20_40 = [
             item for item in self.buffer 
@@ -81,13 +84,13 @@ class PatternDetector:
             if stress_diff > 1.5:
                 return "GRADUAL_STRESS_BUILD"
 
-        # 5. SLOW_RECOVERY
+        # 6. SLOW_RECOVERY
         # State moving toward calm (falling HR), but very slowly
         hr_trend = getattr(fv, "hr_trend", 0.0)
         if -0.5 < hr_trend < -0.01:
             return "SLOW_RECOVERY"
 
-        # 6. NORMAL (Fallback)
+        # 7. NORMAL (Fallback)
         return "NORMAL"
 
     def reset(self) -> None:

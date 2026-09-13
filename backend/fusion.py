@@ -37,16 +37,26 @@ class FusionEngine:
         ml_state = ml_pred.label
         effective_confidence = ml_pred.confidence * feature_confidence
         
-        # ML model is binary (CALM vs ANXIETY) but rules are multi-class.
-        # We only let ML override the rules if it decisively detects ANXIETY.
+        # The ML model is binary (CALM vs ANXIETY) while the rules are multi-class.
+        # It reliably separates "elevated" from "calm", but its confidence does not
+        # distinguish mild stress from full arousal, so it corroborates the rules'
+        # ANXIETY rather than promoting STRESS to ANXIETY on its own. Set
+        # ANXIETY_ML_ALLOW_ESCALATION=1 to restore the overriding behaviour.
         if ml_state == "ANXIETY" and effective_confidence >= self._ml_cfg.confidence_fuse:
-            source = "both" if rule_state == "ANXIETY" else "ml"
-            return FusionResult(
-                state="ANXIETY",
-                rule_state=rule_state,
-                ml_state=ml_state,
-                source=source,
-            )
+            if rule_state == "ANXIETY":
+                return FusionResult(
+                    state="ANXIETY",
+                    rule_state=rule_state,
+                    ml_state=ml_state,
+                    source="both",
+                )
+            if self._ml_cfg.allow_escalation:
+                return FusionResult(
+                    state="ANXIETY",
+                    rule_state=rule_state,
+                    ml_state=ml_state,
+                    source="ml",
+                )
         
         # If ML predicts CALM, or confidence is low, DO NOT override rules.
         # The rules may have detected STRESS or ACTIVE which the ML model doesn't know about.
