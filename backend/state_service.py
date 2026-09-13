@@ -24,7 +24,7 @@ from backend.pattern_detector import PatternDetector
 from backend.pipeline import DataPipeline
 from backend.prediction_smoother import PredictionSmoother
 from backend.rules import RulesEngine
-from backend.session_recorder import SessionRecorder
+from backend.session_recorder import SessionRecorder, grade_reliability
 from backend.session_manager import (
     PHASE_CALIBRATING,
     PHASE_ENDED,
@@ -136,6 +136,7 @@ class AnxietyStateService:
     def start_reader(self) -> None:
         if self._reader:
             return
+        self._recover_interrupted_sessions()
         self._open_csv()
         self._reader = BluetoothReader(
             self._cfg.serial,
@@ -147,6 +148,85 @@ class AnxietyStateService:
         LOG.info("Bluetooth reader thread started (mock=%s)", self._cfg.serial.use_mock)
         if self._cfg.session.autostart:
             self.start_session(label=None)
+
+    def _recover_interrupted_sessions(self) -> None:
+        """Finalize checkpoints left behind by a backend that stopped mid-session.
+
+        A `.partial.json` with no final report means this process died before the
+        session was ended. The checkpoint is promoted to a real report marked
+        `interrupted` so the data is not lost and is never presented as complete.
+        This must never prevent startup.
+        """
+        try:
+            partials = sorted(sessions_dir().glob("*.partial.json"))
+        except OSError as e:
+            LOG.debug("sessions dir unreadable at boot: %s", e)
+            return
+        for path in partials:
+            try:
+                self._recover_one_partial(path)
+            except Exception as e:
+                LOG.warning("Could not recover %s: %s", path.name, e)
+
+    def _recover_one_partial(self, path) -> None:
+        """Promote one checkpoint to an interrupted report. Caller guards exceptions."""
+        session_id = path.name[: -len(".partial.json")]
+        try:
+            with open(path, "r", encoding="utf-8") as fh:
+                report = json.load(fh)
+        except (OSError, ValueError) as e:
+            corrupt = path.with_suffix(path.suffix + ".corrupt")
+            suffix = 0
+            while corrupt.exists():
+                suffix += 1
+                corrupt = path.with_name(path.name + ".corrupt-%d" % suffix)
+            try:
+                path.rename(corrupt)
+                LOG.warning("Unreadable checkpoint %s set aside as %s: %s",
+                            path.name, corrupt.name, e)
+            except OSError as rename_error:
+                LOG.warning("Could not set aside %s: %s", path.name, rename_error)
+            return
+
+        final_path = sessions_dir() / (session_id + ".json")
+        if final_path.is_file():
+            # The session was ended normally; this is just a stale checkpoint.
+            try:
+                path.unlink()
+            except OSError:
+                pass
+            return
+
+        report["status"] = "interrupted"
+        identity = report.setdefault("identity", {})
+        identity["end_reason"] = "interrupted"
+
+        quality = report.setdefault("quality", {})
+        baseline = report.get("baseline") or {}
+        grade, reasons = grade_reliability(
+            baseline_completed=bool(baseline.get("completed")),
+            monitored_duration_s=identity.get("monitored_duration_s") or 0.0,
+            coverage_pct=quality.get("coverage_pct"),
+            mean_confidence=quality.get("mean_confidence"),
+        )
+        quality["reliability"] = grade
+        quality["reliability_reasons"] = reasons
+
+        narrative = report.get("narrative")
+        if not isinstance(narrative, list):
+            narrative = []
+        narrative.append(
+            "This session was interrupted; the backend stopped before it was ended "
+            "normally. Figures cover only the recorded portion."
+        )
+        report["narrative"] = narrative
+
+        self._write_json_atomic(final_path, report)
+        try:
+            path.unlink()
+        except OSError as e:
+            LOG.debug("could not remove checkpoint %s: %s", path.name, e)
+        LOG.info("Recovered interrupted session %s (graded %s)", session_id, grade)
 
     def stop_reader(self) -> None:
         if self._reader:
@@ -305,7 +385,7 @@ class AnxietyStateService:
                 self._snapshot.calibrated = self.baseline.is_ready()
                 # NOTE(plan): only count rejects once monitoring has begun. Every
                 # sample during CALIBRATING takes this path by design, and counting
-                # those would report a healthy session as mostly-rejected data.
+                # those would report a clean session as mostly-rejected data.
                 if self._recorder is not None and self.sessions.state.evaluating:
                     self._recorder.note_rejected_sample()
                 self._maybe_log_csv(sample, hr, gsr, None, None, None, None, None)

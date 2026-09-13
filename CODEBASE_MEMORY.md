@@ -29,8 +29,11 @@ Sensor/Mock → BluetoothReader → DataPipeline → BaselineTracker → compute
 | `state_machine.py` | FSM: CALM→STRESS→ANXIETY→RECOVERY→CALM with hold times (3s/5s) |
 | `pattern_detector.py` | Temporal patterns over 60s: UNSTABLE_SIGNAL, RAPID_STRESS_SPIKE, GRADUAL_STRESS_BUILD, SLOW_RECOVERY, NORMAL |
 | `alert_system.py` | Alert levels: NONE, LOW, MEDIUM, HIGH based on state + pattern |
-| `state_service.py` | Main orchestrator, thread-safe, CSV logging, JSON snapshot |
-| `flask_app.py` | Flask factory: / (index), /data (JSON), /stream (SSE) |
+| `state_service.py` | Main orchestrator, thread-safe, CSV logging, JSON snapshot, owns the session manager and recorder |
+| `session_manager.py` | Session phase machine (IDLE/CALIBRATING/MONITORING/ENDED) + session identity. No I/O, no locks |
+| `session_recorder.py` | Streaming aggregation of one session into the report dict: quality, physiology, states, episodes, warnings, alerts, provenance, interventions |
+| `report_render.py` | Report dict -> deterministic narrative + standalone offline HTML (stdlib only) |
+| `flask_app.py` | Flask factory: / (index), /data (JSON), /stream (SSE), session lifecycle + report routes |
 
 ### ML (C:\...\ml\)
 | File | Purpose |
@@ -168,10 +171,40 @@ Candidate tracking: resets timer if input changes, commits when hold time met
 **GET /data** → JSON snapshot (no-cache headers)
 **GET /stream** → SSE (1 JSON/sec)
 
-Snapshot fields: server_time, hr, gsr, state, rule_state, ml_state, fusion_source, connection, connection_detail, sensor_warning, baseline_hr, baseline_gsr, features{}, window_samples, calibrated, pattern, alert
+Session lifecycle (all additive):
+**POST /session/start** `{label?}` → 201 `{session_id, phase, label}` | 409 `session_active`
+**POST /session/end** → 200 `{session_id, report_url, reliability}` | 409 `no_active_session`
+**POST /session/calibration/restart** → 200 `{session_id, attempts}` | 409 `not_calibrating`
+**POST /session/intervention** `{event, technique?, planned_duration_s?, cycles_completed?}` → 200 `{status, index}` | 400 `invalid_event` | 409 `no_active_session`
+**POST /session/exercise** `{event}` → 200 (back-compat alias, forwards to the intervention handler)
 
-## CSV Log (data/logs/physio_log.csv)
-Columns: timestamp_iso, hr, gsr, raw_line, rule_state, ml_state, fused_state, final_state, connection
+Reports:
+**GET /sessions** → newest-first list (id, label, started_at_iso, duration_s, reliability, peak_state, episode_count, status), capped at 50
+**GET /session/&lt;id&gt;/report** → report JSON; the running session returns the live partial (`status: "partial"`, `reliability: "PARTIAL"`)
+**GET /session/&lt;id&gt;/report.html** → standalone offline HTML attachment
+**GET /session/&lt;id&gt;/report.csv** → this session's raw log rows
+Session ids are validated against `^[0-9]{8}-[0-9]{6}-[0-9a-f]{4}$` before any filesystem access; anything else 404s.
+
+Snapshot fields: server_time, hr, gsr, state, rule_state, ml_state, fused_state, fusion_source, connection, connection_detail, sensor_warning, baseline_hr, baseline_gsr, features{}, window_samples, calibrated, pattern, alert, prediction{}, **session{}**
+
+`session` block: phase, id, label, started_at, elapsed_s, monitored_s, recording, evaluating,
+`calibration{method, progress, elapsed_s, target_s, stable, stalled, paused, attempts}`,
+`live{reliability, coverage_pct, episodes, warnings, interventions, peak_alert, intervention_active}`.
+In IDLE, id/label/started_at/calibration/live are null and recording/evaluating are false.
+
+## Session Reports (data/sessions/)
+- `<id>.json` — immutable final report, written on end_session (tmp + os.replace)
+- `<id>.partial.json` — checkpoint every 10s, deleted on a clean end; finalized as
+  `status: "interrupted"` on the next boot if the backend stopped mid-session
+- Reliability grades: GOOD / LIMITED / INSUFFICIENT (PARTIAL while running). An INSUFFICIENT
+  report keeps identity/quality/baseline and nulls the rest with `unavailable` reasons.
+- Any value that cannot be computed is null plus an `unavailable` entry — never 0, never blank.
+
+## CSV Log (data/logs/physio_log.csv) — schema v2
+Columns: timestamp_iso, session_id, session_phase, hr, gsr, raw_line, rule_state, ml_state, fused_state, final_state, connection, exercise_event
+- Rows outside a recording phase carry an empty `session_id` and the current phase
+- A log whose header predates v2 is rotated to `physio_log.pre_sessions.csv` on boot
+  (appending columns in place would have misaligned every earlier row)
 - Logs every 1s (configurable)
 - During warmup/calibration, processed columns can be blank
 
@@ -194,11 +227,13 @@ Movement causes false HR spikes → misclassification
 - Path handling: `backend/paths.py` resolves relative to repo root
 - CORS enabled for cross-origin API access
 - No database - state in memory, CSV logs
-- `reset_session()` exists but no HTTP endpoint exposed
+- `reset_session()` is the session-boundary primitive; `start_session()` reuses it via
+  `_reset_session_locked()`. Session control is exposed through POST /session/start and /session/end
 
 ## Known Issues / Limitations
 1. ML model is binary (CALM/ANXIETY) but rules/FSM are multi-state
-2. Frontend doesn't display pattern, alert, features (available in API)
+2. The live dashboard still does not surface pattern/alert/features directly; they are
+   recorded per session and shown in the session report instead
 3. No motion compensation (no accelerometer)
 4. Dashboard depends on Chart.js CDN (not fully offline)
 5. Repo contains generated artifacts/cache (__pycache__, debug files)

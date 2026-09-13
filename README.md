@@ -900,9 +900,12 @@ Flask CORS is enabled, so frontend clients on other origins can call the API if 
 
 The project does not use a database. State is held in memory and logs are written to CSV.
 
-### No exposed session reset route
+### Session reset
 
-`AnxietyStateService` has a `reset_session()` method, but the current Flask app does not expose an HTTP endpoint for it.
+`AnxietyStateService.reset_session()` is the session-boundary primitive: it clears the pipeline, baseline,
+smoother, state machine, pattern detector, alert system and trend predictor. `start_session()` reuses it,
+so session control is exposed over HTTP through `POST /session/start` and `POST /session/end` (see
+*Session lifecycle* below).
 
 ## Auxiliary files in the repository
 
@@ -1053,3 +1056,197 @@ User asks, in one message: shrink the state box so the whole graph is visible wi
 - **Chart enlarged**: `.chart-wrap` height went from `clamp(220px, 28vh, 260px)` to `clamp(270px, 36vh, 360px)`, and assorted vertical margins/paddings (`.layout`, `.header`, `.footer`, `.instructions`) were trimmed by a few px each to make room without cutting into the cards or chart.
 
 Verified live in mock mode at 1440×900: with no transient alert banner showing, the header through the full chart now ends at 885px — inside the 900px viewport with zero scrolling required to see the complete graph (previously the graph's bottom edge was at 1039px, i.e. permanently below the fold on a 900px-tall window). Only the collapsed "How to use the device" accordion and the small debug footer line (baseline/window-samples text) fall below the fold, which is expected and low-priority. Also confirmed: the Evidence button visually matches the Calibrated pill's height; the HR/GSR mini-bars and trend badges respond live to rising/falling mock data (screenshotted both a "↓ Falling" and "↑ Rising" state); checked 1024px and 375px widths with no console errors, no horizontal overflow, and no dead/empty space reappearing in the state card at the new smaller ring size.
+
+---
+
+## Session lifecycle
+
+Monitoring is organised into **sessions**, one per person. The phase is owned by the backend and published
+in the snapshot, so the browser is a pure renderer: refreshing the page mid-session restores the correct
+phase, label and elapsed time with no client-side state.
+
+| Phase | Meaning |
+|---|---|
+| `IDLE` | No session. The reader still runs and raw HR/GSR are shown, so the dashboard works as a sensor check. No evaluation, no recording. |
+| `CALIBRATING` | Session active and recording. The personal baseline is being measured; `compute_features()` returns `None`, so no predictions are made. |
+| `MONITORING` | Session active and recording. Full evaluation, prediction and alerting. |
+| `ENDED` | Session finished and its report is available. No evaluation, no recording. |
+
+Legal transitions:
+
+```
+IDLE        -> CALIBRATING     POST /session/start
+CALIBRATING -> MONITORING      automatic, when the baseline locks
+CALIBRATING -> ENDED           POST /session/end   (end_reason "ended_during_calibration")
+CALIBRATING -> CALIBRATING     POST /session/calibration/restart  (same id, attempts += 1)
+MONITORING  -> ENDED           POST /session/end   (end_reason "user_ended")
+ENDED       -> CALIBRATING     POST /session/start (new id)
+IDLE        -> IDLE            POST /session/end   -> 409 no_active_session
+```
+
+`recording` is true in `CALIBRATING` and `MONITORING`; `evaluating` is true only in `MONITORING`.
+
+**What resets when a session starts.** `start_session()` runs the same reset the service has always had:
+the data pipeline, the baseline tracker, the prediction smoother, the state machine, the pattern detector,
+the alert system and the trend predictor are all re-instantiated or cleared, and the displayed baseline is
+blanked. **Nothing carries over from the previous person.** Session ids are `YYYYmmdd-HHMMSS-xxxx` (local
+time plus four hex characters), which is safe as a Windows filename.
+
+### Calibration coaching
+
+The baseline only locks once a window of samples is both long enough and stable enough. If the wearer
+fidgets, that can take considerably longer than the configured window, so calibration reports its own
+telemetry in `session.calibration`:
+
+- `progress` is the true baseline-buffer span over the target, so the ring cannot sit at 100% while still
+  calibrating.
+- `paused` is true when the sensor link is down — nothing measured so far is lost.
+- `stalled` is true once elapsed time exceeds `target * ANXIETY_CALIB_STALL_FACTOR`, which surfaces
+  "hold still" coaching and a **Restart calibration** button. Restarting keeps the same session id and
+  increments `attempts`.
+
+## API contract additions
+
+All additive. `GET /`, `GET /data`, `GET /stream` and `POST /session/exercise` are unchanged.
+
+| Method | Path | Body | Success | Failure |
+|---|---|---|---|---|
+| POST | `/session/start` | `{"label": "Visitor 12"}` (optional) | `201 {session_id, phase, label}` | `409 {error:"session_active", session_id}` |
+| POST | `/session/end` | none | `200 {session_id, report_url, reliability}` | `409 {error:"no_active_session"}` |
+| POST | `/session/calibration/restart` | none | `200 {session_id, attempts}` | `409 {error:"not_calibrating"}` |
+| POST | `/session/intervention` | `{event, technique?, planned_duration_s?, cycles_completed?}` | `200 {status:"ok", index}` | `400 {error:"invalid_event"}` / `409 {error:"no_active_session"}` |
+| GET | `/sessions` | — | `200 [...]` newest first, capped at 50 | — |
+| GET | `/session/<id>/report` | — | `200 <report JSON>` | `404 {error:"not_found"}` |
+| GET | `/session/<id>/report.html` | — | `200 text/html` attachment | `404` |
+| GET | `/session/<id>/report.csv` | — | `200 text/csv` attachment | `404` |
+| POST | `/session/exercise` | `{event}` | `200` — back-compat alias, forwards to the intervention handler | — |
+
+Notes:
+
+- Requesting the report of the **currently running** session returns the live partial with
+  `status: "partial"` and `quality.reliability: "PARTIAL"`. It does not 404.
+- Session ids are validated against `^[0-9]{8}-[0-9]{6}-[0-9a-f]{4}$` **before** any filesystem access, so
+  a crafted id cannot escape `data/sessions/`.
+- `event` on `/session/intervention` must be `"start"` or `"stop"`. Both are idempotent: a second start
+  returns the running index and a stop with nothing running is a no-op.
+
+## Snapshot addition: `session`
+
+One new top-level key. Every pre-existing field keeps its name, type and meaning.
+
+```json
+"session": {
+  "phase": "MONITORING",
+  "id": "20260912-193004-a1b2",
+  "label": "Visitor 12",
+  "started_at": 1789000000.0,
+  "elapsed_s": 214.0,
+  "monitored_s": 181.0,
+  "recording": true,
+  "evaluating": true,
+  "calibration": {
+    "method": "personalized", "progress": 1.0, "elapsed_s": 33.0, "target_s": 30.0,
+    "stable": true, "stalled": false, "paused": false, "attempts": 1
+  },
+  "live": {
+    "reliability": "GOOD", "coverage_pct": 97.2, "episodes": 1, "warnings": 2,
+    "interventions": 1, "peak_alert": "MEDIUM", "intervention_active": false
+  }
+}
+```
+
+In `IDLE`, `id` / `label` / `started_at` / `calibration` / `live` are `null` and `recording` / `evaluating`
+are `false`. In `ENDED`, the identity fields describe the just-ended session and `live` carries its final
+numbers.
+
+## Session report
+
+Ending a session writes an immutable `data/sessions/<id>.json` and opens the report in the dashboard. The
+JSON is the single source of truth: the in-app panel, the HTML download and the narrative are all
+projections of it.
+
+Top-level sections: `identity`, `quality`, `baseline`, `physiology`, `states`, `episodes`,
+`early_warnings`, `alerts`, `interventions`, `intervention_summary`, `provenance`, `narrative`,
+`unavailable`, `disclaimer`.
+
+**Any value that cannot be computed is `null` and gets an entry in `unavailable` explaining why. Zero is
+never substituted for unknown.** The UI renders those as *"not available — {reason}"*.
+
+### Reliability grading
+
+Reliability is graded once and shown **before** the metrics it qualifies. The first matching tier wins, and
+every reason that applies is listed.
+
+| Grade | Condition |
+|---|---|
+| `INSUFFICIENT` | the baseline never completed, **or** monitored time < 60 s, **or** coverage < 40% |
+| `LIMITED` | monitored time < 3 min, **or** coverage < 70%, **or** mean confidence < 0.45 |
+| `GOOD` | none of the above |
+| `PARTIAL` | forced while the session is still running — not graded |
+
+An `INSUFFICIENT` report keeps `identity`, `quality` and `baseline` and nulls `physiology`, `states`,
+`early_warnings`, `alerts` and `provenance`, each with an `unavailable` reason. Interventions are still
+listed, because they are factual events. A `LIMITED` report is complete but every section is stamped
+*provisional*.
+
+### Episodes, warnings and interventions
+
+- An **episode** is a run of `STRESS` or `ANXIETY` in the state machine lasting at least 5 s. `STRESS ->
+  ANXIETY` is an escalation: the STRESS run closes with no resolution and is tagged `escalated`. A run
+  still open when the session ends is closed as `open_at_session_end` — a resolution is never synthesized.
+- **Early warnings** are reported as *"N issued, M confirmed"*. A forecast counts as confirmed when the
+  predicted state actually arrives within its own horizon plus a 10 s grace. This is a count of what
+  happened, not an accuracy or validation figure.
+- **Interventions** (breathing exercises) are recorded by the backend, so a page refresh mid-exercise no
+  longer destroys the record. Each has a 60 s observation window afterwards; if the session ends before it
+  completes, `recovery_data` is `truncated` or `unavailable` and `hr_at_plus_60s` stays `null`. Results are
+  stated observationally — *"HR decreased 11 bpm across the exercise"* — never causally.
+
+### What the report deliberately does not include, and why
+
+- **HRV / RMSSD / SDNN or any inter-beat-interval metric.** The device streams a single averaged BPM value
+  at 1 Hz. There are no inter-beat intervals in that data, so any HRV figure would be fabricated.
+- **A 0–100 "stress score" or percentile.** There is no validated normative population to rank a reading
+  against, so a score would imply a comparison that does not exist.
+- **Clinical severity ratings or anything diagnostic.** This is a wellbeing-monitoring prototype, not a
+  medical device.
+- **Cross-session trend analytics.** Each session measures its own fresh baseline, so numbers from
+  different sessions are not comparable on a common scale.
+
+Every report carries this line verbatim:
+
+> Saarthi is a physiological stress and anxiety state estimation prototype for wellbeing monitoring. It is
+> not a medical device and does not diagnose, treat, or provide clinical advice.
+
+### Interrupted sessions
+
+Checkpoints are written to `data/sessions/<id>.partial.json` every 10 s and deleted on a clean end. If the
+backend stops mid-session, the next boot promotes the leftover checkpoint to a real report with
+`status: "interrupted"`, re-grades it from the data present, and appends a narrative line saying so — at
+most 10 s of data is lost. A checkpoint that cannot be parsed is renamed to `.corrupt` and startup
+continues.
+
+## CSV schema v2
+
+`data/logs/physio_log.csv` gained two columns, in this order:
+
+```
+timestamp_iso, session_id, session_phase, hr, gsr, raw_line,
+rule_state, ml_state, fused_state, final_state, connection, exercise_event
+```
+
+Rows written outside a recording phase carry an empty `session_id` and the current phase, so the raw trace
+is never interrupted — logging continues even with no session running.
+
+**Rotation.** An existing log whose header does not match the v2 header is renamed to
+`data/logs/physio_log.pre_sessions.csv` on the first v2 boot and a fresh file is started. Appending columns
+in place was not an option: the previous file already had a drifted header, so every earlier row would have
+been silently misaligned.
+
+## New configuration variables
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `ANXIETY_CALIB_STALL_FACTOR` | `2.0` | Multiple of the calibration window after which calibration is reported as stalled |
+| `ANXIETY_SESSION_CHECKPOINT_S` | `10.0` | Seconds between `.partial.json` checkpoint writes |
+| `ANXIETY_SESSION_AUTOSTART` | `false` | Start a session automatically on boot (exhibition convenience) |
