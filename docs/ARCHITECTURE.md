@@ -5,6 +5,8 @@ byte to rendered state, the module and frontend guides, the HTTP/SSE contract,
 the session lifecycle and report, and the on-disk data formats.
 
 For what the project is and how to run it, see the [README](../README.md).
+For the same system explained without code, see the
+[non-programmer's guide](CODE_GUIDE.md).
 For the record of how it got here, see the [changelog](CHANGELOG.md).
 
 ---

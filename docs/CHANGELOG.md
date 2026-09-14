@@ -8,7 +8,8 @@ Newest work is at the bottom of each thread rather than the top, so a section
 reads in the order it happened.
 
 For the current state of the system, see the [README](../README.md) and
-[docs/ARCHITECTURE.md](ARCHITECTURE.md).
+[docs/ARCHITECTURE.md](ARCHITECTURE.md), or [CODE_GUIDE.md](CODE_GUIDE.md) for a
+plain-English walkthrough.
 
 ---
 

@@ -22,6 +22,7 @@ how it is configured, and where its limits are. The detail lives next to it.
 
 | Document | What is in it |
 | --- | --- |
+| [docs/CODE_GUIDE.md](docs/CODE_GUIDE.md) | **Start here if you do not read code.** Every folder and file explained in plain English, the full journey of one sensor reading, worked examples, and a glossary |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | The runtime pipeline stage by stage, backend module guide, frontend guide, HTTP/SSE contract, session lifecycle and report, CSV schema, ML pipeline |
 | [docs/CHANGELOG.md](docs/CHANGELOG.md) | Development journal: UI redesign phases, post-redesign rounds, accuracy corrections found in review, pre-freeze reliability pass |
 | [docs/TESTING.md](docs/TESTING.md) | Manual regression checklist and how to verify each state without hardware |
