@@ -173,54 +173,148 @@ class BluetoothReader:
         self._on_status("connected", None)
         self._on_sample(Sample(gsr=gsr, hr=hr, raw_line=line))
 
+    # ------------------------------------------------------------------
+    # Mock (demonstration) stream
+    # ------------------------------------------------------------------
+    #
+    # Why the mock is scripted rather than a short sine cycle:
+    # compute_features() averages a 30 s sliding window and compares that mean
+    # to the calibrated baseline. A 5 s spike of +35 bpm only lifts the window
+    # mean by ~6 bpm, which never clears ANXIETY_THR_DELTA_HR (12) — the old
+    # cycle could physically only ever reach STRESS. Every elevated phase below
+    # therefore holds its plateau for well over one window, so the window mean
+    # itself lands in the intended band, and the noise is kept small so the
+    # confidence gate (rules downgrade below 0.5) stays clear.
+    #
+    # A phase is (name, duration_s, hr_delta_start, hr_delta_end,
+    #             gsr_delta_start, gsr_delta_end), deltas relative to the calm
+    # resting point the baseline calibrates on.
+    _MOCK_BASE_HR: float = 70.0
+    _MOCK_BASE_GSR: float = 500.0
+    _MOCK_HR_NOISE: float = 1.2
+    _MOCK_GSR_NOISE: float = 5.0
+
+    # Full arc: every state the FSM can show, in order, each held long enough
+    # for the smoother (majority of 7) and the FSM hold timers to commit.
+    _MOCK_DEMO_PHASES = [
+        ("calm",        45.0,  0.0,  0.0,   0.0,   0.0),
+        ("onset",       25.0,  0.0, 10.0,   0.0,  55.0),
+        ("stress",      45.0, 10.0, 10.0,  55.0,  55.0),
+        ("escalation",  16.0, 10.0, 42.0,  55.0, 230.0),
+        ("anxiety",     90.0, 42.0, 42.0, 230.0, 230.0),
+        ("deescalate",  12.0, 42.0, -9.0, 230.0, -70.0),
+        ("rebound",     40.0, -9.0, -9.0, -70.0, -70.0),
+        ("recovery",    45.0, -9.0,  0.0, -70.0,   0.0),
+        ("settled",     30.0,  0.0,  0.0,   0.0,   0.0),
+        # Motor activity: HR climbs with no sympathetic GSR surge, which is the
+        # ACTIVE rule (delta_gsr stays under ANXIETY_THR_ACTIVITY_GSR_DELTA=25).
+        ("activity",    45.0,  0.0, 30.0,   0.0,  10.0),
+        ("cooldown",    35.0, 30.0,  0.0,  10.0,   0.0),
+    ]
+
+    # Single-state scenarios: ramp in, then hold forever (last phase repeats).
+    _MOCK_SCENARIOS = {
+        "demo": _MOCK_DEMO_PHASES,
+        "calm": [("calm", 60.0, 0.0, 0.0, 0.0, 0.0)],
+        "stress": [
+            ("onset", 25.0, 0.0, 10.0, 0.0, 55.0),
+            ("stress", 120.0, 10.0, 10.0, 55.0, 55.0),
+        ],
+        "anxiety": [
+            ("onset", 20.0, 0.0, 10.0, 0.0, 55.0),
+            ("stress", 25.0, 10.0, 10.0, 55.0, 55.0),
+            ("escalation", 16.0, 10.0, 42.0, 55.0, 230.0),
+            ("anxiety", 180.0, 42.0, 42.0, 230.0, 230.0),
+        ],
+        "activity": [
+            ("activity", 45.0, 0.0, 30.0, 0.0, 10.0),
+            ("activity_hold", 120.0, 30.0, 30.0, 10.0, 10.0),
+        ],
+        "recovery": [
+            ("escalation", 30.0, 0.0, 42.0, 0.0, 230.0),
+            ("anxiety", 60.0, 42.0, 42.0, 230.0, 230.0),
+            ("deescalate", 12.0, 42.0, -9.0, 230.0, -70.0),
+            ("rebound", 40.0, -9.0, -9.0, -70.0, -70.0),
+            ("recovery", 45.0, -9.0, 0.0, -70.0, 0.0),
+            ("settled", 60.0, 0.0, 0.0, 0.0, 0.0),
+        ],
+    }
+
+    def _mock_phases(self) -> list:
+        name = getattr(self._cfg, "mock_scenario", "demo") or "demo"
+        phases = self._MOCK_SCENARIOS.get(name)
+        if phases is None:
+            LOG.warning(
+                "Unknown ANXIETY_MOCK_SCENARIO=%r; falling back to 'demo' (choices: %s)",
+                name, ", ".join(sorted(self._MOCK_SCENARIOS)),
+            )
+            phases = self._MOCK_DEMO_PHASES
+        return list(phases)
+
+    def _mock_phase_at(self, phases: list, t: float) -> tuple:
+        """Resolve scripted time *t* to (phase_name, hr_delta, gsr_delta)."""
+        total = sum(p[1] for p in phases)
+        looping = getattr(self._cfg, "mock_loop", True)
+        if total <= 0:
+            return "calm", 0.0, 0.0
+        if t >= total:
+            if looping:
+                t = t % total
+            else:
+                # Hold the end of the script rather than snapping back to calm.
+                name, _dur, _h0, h1, _g0, g1 = phases[-1]
+                return name, h1, g1
+        acc = 0.0
+        for name, dur, h0, h1, g0, g1 in phases:
+            if t < acc + dur:
+                progress = (t - acc) / dur if dur > 0 else 1.0
+                return (
+                    name,
+                    h0 + (h1 - h0) * progress,
+                    g0 + (g1 - g0) * progress,
+                )
+            acc += dur
+        name, _dur, _h0, h1, _g0, g1 = phases[-1]
+        return name, h1, g1
+
     def _mock_loop(self) -> None:
-        """Simulate plausible HR/GSR for local testing without hardware."""
-        import math
+        """Replay a scripted physiological scenario for demos without hardware."""
         self._on_status("mock", "simulated")
-        LOG.info("Mock serial: generating synthetic GSR/HR")
+        phases = self._mock_phases()
+        speed = max(0.1, float(getattr(self._cfg, "mock_speed", 1.0) or 1.0))
+        scenario = getattr(self._cfg, "mock_scenario", "demo")
+        LOG.info(
+            "Mock serial: scenario=%s speed=%.2fx loop=%s (%.0fs script, %.0fs calibration first)",
+            scenario, speed, getattr(self._cfg, "mock_loop", True),
+            sum(p[1] for p in phases), self._mock_calibration_seconds,
+        )
         t0 = time.time()
-        
+        last_phase: Optional[str] = None
+
         while not self._stop.is_set():
             elapsed = time.time() - t0
 
-            # Hold calm, low-noise readings during baseline calibration so mock
-            # mode matches the documented ~30s calibration window.
             if elapsed < self._mock_calibration_seconds:
-                hr = 70.0 + random.uniform(-3.0, 3.0)
-                gsr = 500.0 + random.uniform(-10.0, 10.0)
+                # Quiet, low-variance resting period so the baseline locks on
+                # the same resting point every phase below is measured against.
+                phase = "calibrating"
+                hr_delta = 0.0
+                gsr_delta = 0.0
             else:
-                # 30-second cycle for pattern generation after calibration
-                cycle_elapsed = elapsed - self._mock_calibration_seconds
-                cycle_phase = cycle_elapsed % 30.0
+                script_t = (elapsed - self._mock_calibration_seconds) * speed
+                phase, hr_delta, gsr_delta = self._mock_phase_at(phases, script_t)
 
-                hr = 70.0
-                gsr = 500.0 + math.sin(cycle_elapsed * 0.1) * 75.0
+            if phase != last_phase:
+                LOG.info("Mock scenario phase: %s", phase)
+                last_phase = phase
 
-                if cycle_phase < 10.0:
-                    pass
-                elif cycle_phase < 15.0:
-                    progress = (cycle_phase - 10.0) / 5.0
-                    hr += progress * 25.0
-                    gsr += progress * 100.0
-                elif cycle_phase < 20.0:
-                    hr += 35.0
-                    gsr += 150.0
-                else:
-                    progress = (cycle_phase - 20.0) / 10.0
-                    hr += 35.0 * (1.0 - progress)
-                    gsr += 150.0 * (1.0 - progress)
+            hr = self._MOCK_BASE_HR + hr_delta + random.gauss(0.0, self._MOCK_HR_NOISE)
+            gsr = self._MOCK_BASE_GSR + gsr_delta + random.gauss(0.0, self._MOCK_GSR_NOISE)
 
-                hr += random.uniform(-10.0, 10.0)
-                gsr += random.uniform(-20.0, 20.0)
-
-                if random.random() < 0.05:
-                    hr += random.uniform(10.0, 20.0)
-                    gsr += random.uniform(50.0, 100.0)
-                
             line = f"GSR:{int(gsr)},HR:{int(hr)}"
-            self._echo(line, "-> HR %6.1f bpm | GSR %6.1f  (mock)" % (hr, gsr))
+            self._echo(line, "-> HR %6.1f bpm | GSR %6.1f  (mock: %s)" % (hr, gsr, phase))
             self._on_sample(Sample(gsr=gsr, hr=hr, raw_line=line))
-            
+
             # Explicitly lock to 1 update per second
             if self._stop.wait(1.0):
                 break

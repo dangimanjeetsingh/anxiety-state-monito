@@ -35,8 +35,11 @@ const GUIDE_BACKDROP = document.getElementById("guideBackdrop");
 const GUIDE_CLOSE   = document.getElementById("guideClose");
 const GUIDE_TAB_HOW      = document.getElementById("guideTabHow");
 const GUIDE_TAB_EVIDENCE = document.getElementById("guideTabEvidence");
+const GUIDE_TAB_DEVICE   = document.getElementById("guideTabDevice");
 const GUIDE_PANEL_HOW      = document.getElementById("guidePanelHow");
 const GUIDE_PANEL_EVIDENCE = document.getElementById("guidePanelEvidence");
+const GUIDE_PANEL_DEVICE   = document.getElementById("guidePanelDevice");
+const DEVICE_GUIDE_TOGGLE  = document.getElementById("deviceGuideToggle");
 
 // Feature 1 refs
 const PRED_BANNER       = document.getElementById("predictionBanner");
@@ -942,53 +945,73 @@ if (RC_CLOSE_BTN) {
   });
 }
 
-// ── Method & Evidence Drawer ──────────────────────────────────────────────────
-function setGuideOpen(open) {
-  if (!GUIDE_TOGGLE || !GUIDE_DRAWER || !GUIDE_BACKDROP) return;
+// ── Method / Evidence / Device drawer ────────────────────────────────────────
+// Three views share one drawer: the system walkthrough (default), the research
+// panel, and the device instructions that used to live in a <details> at the
+// very bottom of the page. Two header buttons open it; whichever one was used
+// is the one focus returns to on close.
+const GUIDE_TABS = [
+  { id: "how",      btn: GUIDE_TAB_HOW,      panel: GUIDE_PANEL_HOW },
+  { id: "evidence", btn: GUIDE_TAB_EVIDENCE, panel: GUIDE_PANEL_EVIDENCE },
+  { id: "device",   btn: GUIDE_TAB_DEVICE,   panel: GUIDE_PANEL_DEVICE },
+].filter((t) => t.btn && t.panel);
+
+let guideOpener = GUIDE_TOGGLE;
+
+function setGuideOpen(open, tab) {
+  if (!GUIDE_DRAWER || !GUIDE_BACKDROP) return;
   GUIDE_DRAWER.hidden = !open;
   GUIDE_BACKDROP.hidden = !open;
-  GUIDE_TOGGLE.setAttribute("aria-expanded", String(open));
+  for (const btn of [GUIDE_TOGGLE, DEVICE_GUIDE_TOGGLE]) {
+    btn?.setAttribute("aria-expanded", String(open && btn === guideOpener));
+  }
   document.body.classList.toggle("drawer-open", open);
-  // Always reopen on the walkthrough: at an exhibition the next question
-  // starts from "how does this work", not from wherever it was left.
-  if (open) setGuideTab("how");
+  // Always reopen on a known tab: at an exhibition the next question starts
+  // from the top, not from wherever the panel was left.
+  if (open) setGuideTab(tab || "how");
   if (open && GUIDE_CLOSE) GUIDE_CLOSE.focus();
-  if (!open) GUIDE_TOGGLE.focus();
+  if (!open) guideOpener?.focus();
 }
 
-// The drawer holds two views: the system walkthrough (default) and the
-// original research/evidence panel. Switching only toggles visibility —
-// both panels are static markup, so there is nothing to load or render.
 function setGuideTab(tab) {
-  if (!GUIDE_TAB_HOW || !GUIDE_TAB_EVIDENCE || !GUIDE_PANEL_HOW || !GUIDE_PANEL_EVIDENCE) return;
-  const how = tab !== "evidence";
-  GUIDE_PANEL_HOW.hidden = !how;
-  GUIDE_PANEL_EVIDENCE.hidden = how;
-  for (const [btn, on] of [[GUIDE_TAB_HOW, how], [GUIDE_TAB_EVIDENCE, !how]]) {
-    btn.classList.toggle("is-active", on);
-    btn.setAttribute("aria-selected", String(on));
-    btn.tabIndex = on ? 0 : -1;
+  if (!GUIDE_TABS.length) return;
+  const active = GUIDE_TABS.some((t) => t.id === tab) ? tab : GUIDE_TABS[0].id;
+  for (const t of GUIDE_TABS) {
+    const on = t.id === active;
+    t.panel.hidden = !on;
+    t.btn.classList.toggle("is-active", on);
+    t.btn.setAttribute("aria-selected", String(on));
+    t.btn.tabIndex = on ? 0 : -1;
+    if (on) t.panel.scrollTop = 0;
   }
-  (how ? GUIDE_PANEL_HOW : GUIDE_PANEL_EVIDENCE).scrollTop = 0;
 }
 
-if (GUIDE_TAB_HOW && GUIDE_TAB_EVIDENCE) {
-  GUIDE_TAB_HOW.addEventListener("click", () => setGuideTab("how"));
-  GUIDE_TAB_EVIDENCE.addEventListener("click", () => setGuideTab("evidence"));
+for (const [i, t] of GUIDE_TABS.entries()) {
+  t.btn.addEventListener("click", () => setGuideTab(t.id));
   // Left/right arrows move between tabs, per the ARIA tablist pattern.
-  for (const btn of [GUIDE_TAB_HOW, GUIDE_TAB_EVIDENCE]) {
-    btn.addEventListener("keydown", (event) => {
-      if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
-      event.preventDefault();
-      const next = btn === GUIDE_TAB_HOW ? GUIDE_TAB_EVIDENCE : GUIDE_TAB_HOW;
-      setGuideTab(next === GUIDE_TAB_HOW ? "how" : "evidence");
-      next.focus();
-    });
-  }
+  t.btn.addEventListener("keydown", (event) => {
+    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+    event.preventDefault();
+    const step = event.key === "ArrowRight" ? 1 : -1;
+    const next = GUIDE_TABS[(i + step + GUIDE_TABS.length) % GUIDE_TABS.length];
+    setGuideTab(next.id);
+    next.btn.focus();
+  });
 }
 
-if (GUIDE_TOGGLE && GUIDE_DRAWER && GUIDE_BACKDROP) {
-  GUIDE_TOGGLE.addEventListener("click", () => setGuideOpen(GUIDE_DRAWER.hidden));
+function wireGuideToggle(btn, tab) {
+  if (!btn || !GUIDE_DRAWER || !GUIDE_BACKDROP) return;
+  btn.addEventListener("click", () => {
+    const opening = GUIDE_DRAWER.hidden;
+    if (opening) guideOpener = btn;
+    setGuideOpen(opening, tab);
+  });
+}
+
+wireGuideToggle(GUIDE_TOGGLE, "how");
+wireGuideToggle(DEVICE_GUIDE_TOGGLE, "device");
+
+if (GUIDE_DRAWER && GUIDE_BACKDROP) {
   GUIDE_CLOSE?.addEventListener("click", () => setGuideOpen(false));
   GUIDE_BACKDROP.addEventListener("click", () => setGuideOpen(false));
 }

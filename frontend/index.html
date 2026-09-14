@@ -41,6 +41,10 @@
               <span class="status-pill-detail">All systems operational</span>
             </span>
           </button>
+          <button class="guide-toggle guide-toggle--device" id="deviceGuideToggle" type="button" aria-controls="interpretationDrawer" aria-expanded="false">
+            <span class="guide-toggle-ico" aria-hidden="true">&#128203;</span>
+            How to use
+          </button>
           <button class="guide-toggle" id="guideToggle" type="button" aria-controls="interpretationDrawer" aria-expanded="false">
             How it works &amp; Evidence
             <span class="guide-toggle-chevron" aria-hidden="true">&#8250;</span>
@@ -152,6 +156,15 @@
             <p class="state-microcopy-lines state-microcopy--idle"><span class="state-microcopy-lead">Ready when you are.</span><span>Start a session to measure a baseline.</span><span>Nothing is recorded yet.</span></p>
             <p class="state-microcopy-lines state-microcopy--calibrating"><span class="state-microcopy-lead">Sit still and relax.</span><span>Reading your baseline HR &amp; GSR.</span><span>Prediction starts automatically.</span></p>
           </div>
+          <!-- Where the current state sits on the arousal ladder. Purely
+               CSS-driven off the .state-card.state-* class app.js already
+               sets, so there is no extra JS and nothing new to keep in sync. -->
+          <ol class="state-scale" aria-hidden="true">
+            <li class="state-scale-step state-scale-step--calm"><span class="state-scale-dot"></span><span class="state-scale-label">Calm</span></li>
+            <li class="state-scale-step state-scale-step--stress"><span class="state-scale-dot"></span><span class="state-scale-label">Stress</span></li>
+            <li class="state-scale-step state-scale-step--anxiety"><span class="state-scale-dot"></span><span class="state-scale-label">Anxiety</span></li>
+            <li class="state-scale-step state-scale-step--recovery"><span class="state-scale-dot"></span><span class="state-scale-label">Recovery</span></li>
+          </ol>
           <p class="meta" id="metaVal">Rules &middot; ML</p>
         </div>
         <div class="side-cards">
@@ -454,6 +467,8 @@
                   aria-selected="true" aria-controls="guidePanelHow">System walkthrough</button>
           <button class="guide-tab" id="guideTabEvidence" type="button" role="tab"
                   aria-selected="false" aria-controls="guidePanelEvidence" tabindex="-1">Research &amp; evidence</button>
+          <button class="guide-tab" id="guideTabDevice" type="button" role="tab"
+                  aria-selected="false" aria-controls="guidePanelDevice" tabindex="-1">How to use the device</button>
         </div>
 
         <div class="guide-drawer-body" id="guidePanelHow" role="tabpanel" aria-labelledby="guideTabHow">
@@ -797,7 +812,7 @@
 
         <aside class="interpretation-note">
           <strong>Important:</strong> HR and EDA/GSR are useful autonomic signals, but they are affected by movement, exercise, sensor placement, and other factors. This educational wellness prototype cannot diagnose a mental-health or medical condition. If you are concerned about symptoms, consult a qualified healthcare professional.
-        </aside>
+      </aside>
 
         <section class="ml-model-card" aria-labelledby="mlModelTitle">
           <div class="ml-model-header">
@@ -881,63 +896,93 @@
           </ol>
         </div>
         </div>
-      </aside>
+  
+        <!-- ── "How to use the device" — moved out of the page footer and into
+             this drawer so it opens from the header, at full drawer width. ── -->
+        <div class="guide-drawer-body" id="guidePanelDevice" role="tabpanel" aria-labelledby="guideTabDevice" hidden>
+          <p class="drawer-meta">Wear it, start a session, sit still. The whole run takes about five minutes.</p>
 
-      <!-- ── Device Instructions ───────────────────────────────────────────── -->
-      <details class="instructions" id="deviceInstructions">
-        <summary class="instructions-toggle">
-          <span class="instr-icon">📋</span>
-          <span>How to use the device</span>
-          <span class="instr-chevron">▾</span>
-        </summary>
+          <ol class="hiw-flow" aria-label="Session flow">
+            <li><span class="hiw-flow-ico" aria-hidden="true">&#9878;</span><strong>Wear</strong><small>firm skin contact</small></li>
+            <li><span class="hiw-flow-ico" aria-hidden="true">&#128268;</span><strong>Power on</strong><small>2 beeps</small></li>
+            <li><span class="hiw-flow-ico" aria-hidden="true">&#9654;</span><strong>Start session</strong><small>header button</small></li>
+            <li><span class="hiw-flow-ico" aria-hidden="true">&#8987;</span><strong>Calibrate</strong><small>~30 s, still</small></li>
+            <li><span class="hiw-flow-ico" aria-hidden="true">&#128200;</span><strong>Monitor</strong><small>live states</small></li>
+            <li><span class="hiw-flow-ico" aria-hidden="true">&#128203;</span><strong>End &amp; report</strong><small>saved to disk</small></li>
+          </ol>
 
-        <div class="instr-body">
           <div class="instr-steps">
 
             <div class="instr-step">
               <span class="step-badge">1</span>
               <div>
                 <strong>Wear the device properly</strong>
-                <p>Strap the sensor securely to your fingertip or wrist as instructed. Ensure the optical HR sensor and GSR electrodes have firm, consistent skin contact before powering on.</p>
+                <p>Strap the sensor to your fingertip or wrist. The optical HR sensor and both GSR electrodes need firm, continuous skin contact — loose contact is the single most common cause of dropped or jumpy readings.</p>
               </div>
             </div>
 
             <div class="instr-step">
               <span class="step-badge">2</span>
               <div>
-                <strong>Power on — listen for 2 beeps</strong>
-                <p>When the device boots it plays <strong>2 short buzzer beeps</strong>. This confirms firmware has initialised and Bluetooth is broadcasting. Wait for the status bar above to turn <span class="pill-ok">green</span> before starting a session.</p>
+                <strong>Power on — listen for a beep</strong>
+                <p>On boot the device plays <strong>1 short buzzer beep</strong>: firmware is up and the HC-05 is broadcasting. Wait for the status pill at the top of the dashboard to read <span class="pill-ok">Connected</span>. If it says <em>"Place finger on sensor"</em>, reseat the sensor before going on.</p>
               </div>
             </div>
 
             <div class="instr-step">
               <span class="step-badge">3</span>
               <div>
-                <strong>One buzz = one data point recorded</strong>
-                <p>After connecting, the buzzer pulses <strong>once per second</strong>. Each buzz means HR and GSR values have been sampled and sent to this dashboard. The live chart updates in sync.</p>
-              </div>
-            </div>
-
-            <div class="instr-step instr-step--warn">
-              <span class="step-badge step-badge--warn">⚠</span>
-              <div>
-                <strong>Keep your hand still — no accelerometer on board</strong>
-                <p>This device does <em>not</em> include an accelerometer, so motion artefacts <strong>cannot be filtered automatically</strong>. Any movement of the hand or wrist while wearing the device will cause false HR spikes that the ML model will misclassify as stress or anxiety.</p>
-                <p class="instr-tip">✅ Correct use: wear the device, place both hands on a flat surface, and <strong>sit calmly</strong> for the duration of the session.</p>
+                <strong>One buzz = one data point</strong>
+                <p>Once connected the buzzer pulses <strong>once per second</strong>. Each buzz is one HR + GSR sample reaching this dashboard. The Heart rate and GSR cards and the live chart update on the same beat — even before a session starts, so you can use it as a hardware check.</p>
               </div>
             </div>
 
             <div class="instr-step">
               <span class="step-badge">4</span>
               <div>
-                <strong>Calibration window (~30 s)</strong>
-                <p>The first 30 seconds are used to establish your personal baseline HR and GSR. Sit still during this period. The footer will change from <em>"Baseline calibrating…"</em> to show your baseline values once complete.</p>
+                <strong>Press <em>Start Session</em> to begin recording</strong>
+                <p>Nothing is analysed or saved until you start a session. Use the <strong>Start Session</strong> button in the header; a timer chip appears beside it showing how long the session has been running.</p>
+              </div>
+            </div>
+
+            <div class="instr-step">
+              <span class="step-badge">5</span>
+              <div>
+                <strong>Calibration window (~30 s) — sit still</strong>
+                <p>The first ~30 seconds measure <em>your</em> resting HR and GSR. The state card shows a filling progress ring and a live percentage; no state is predicted yet, because every later reading is judged relative to this baseline. When it locks, a <strong>Calibrated</strong> pill appears in the header with your baseline values.</p>
+                <p class="instr-tip">If the readings are too unsteady to lock, calibration keeps sliding forward and offers <strong>Restart calibration</strong> — settle your hand and let it retry.</p>
+              </div>
+            </div>
+
+            <div class="instr-step instr-step--warn">
+              <span class="step-badge step-badge--warn">&#9888;</span>
+              <div>
+                <strong>Keep your hand still — there is no accelerometer on board</strong>
+                <p>The device cannot detect or filter motion, so movement of the hand or wrist produces HR spikes that can be misread as stress or anxiety. The system only partly protects you here: a rise in HR with <em>no</em> matching GSR rise is flagged as <strong>activity</strong> rather than anxiety, but sustained fidgeting will still distort the session.</p>
+                <p class="instr-tip">&#9989; Correct use: sit down, rest both hands flat on the table, and stay calm for the whole session.</p>
+              </div>
+            </div>
+
+            <div class="instr-step">
+              <span class="step-badge">6</span>
+              <div>
+                <strong>Watch the live state — and act on it</strong>
+                <p>After calibration the state card reports <strong>CALM</strong>, <strong>STRESS</strong>, <strong>ANXIETY</strong> or <strong>RECOVERY</strong>, with an early-warning pill when the trend suggests a state change is coming. If arousal rises, a guided <strong>breathing exercise</strong> is offered — or open it any time with the 🫁 button at the bottom right. It runs a 4-4-4-4 rhythm for 1–3 minutes and then reports how much your HR and GSR actually fell.</p>
+              </div>
+            </div>
+
+            <div class="instr-step">
+              <span class="step-badge">7</span>
+              <div>
+                <strong>End the session to get the report</strong>
+                <p>Press <strong>End Session</strong>. The report opens in-app: time spent in each state, episodes detected, early-warning hit rate, interventions and their measured recovery. Download it as <strong>JSON, HTML or CSV</strong>, and reopen any past run from <strong>Sessions</strong> in the header. Reports are written to disk as they run, so an interrupted session is still recoverable.</p>
               </div>
             </div>
 
           </div><!-- /instr-steps -->
-        </div><!-- /instr-body -->
-      </details>
+        </div>
+      </aside>
+
 
       <footer class="footer">
         <span id="baselineInfo">Baseline calibrating…</span>

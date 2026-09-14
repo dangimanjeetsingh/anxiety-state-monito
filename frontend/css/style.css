@@ -5121,3 +5121,255 @@ body.readings-stale .state-card {
 body.readings-stale .state-card .state-dial {
   opacity: 0.5;
 }
+
+/* ══════════════════════════════════════════════════════════════════════════
+   UI round 6 — wider drawer, header-mounted device guide, rebuilt state panel
+   Appended last so it wins over the earlier phase blocks.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/* ── 1. Drawer width ───────────────────────────────────────────────────────
+   720px on a 1440px screen left the tables and the pipeline ribbon squeezed
+   into half the window while the backdrop wasted the rest. The drawer now
+   takes ~72% of the viewport (capped so it stays readable on very wide
+   monitors) and goes full-width on phones. */
+.guide-drawer {
+  width: min(1180px, max(72vw, 560px));
+  max-width: 100vw;
+}
+
+@media (max-width: 700px) {
+  .guide-drawer {
+    width: 100vw;
+  }
+}
+
+/* The tab bar has three tabs now; let it wrap instead of overflowing. */
+.guide-tabs {
+  flex-wrap: wrap;
+}
+
+/* ── 2. "How to use" header button ─────────────────────────────────────────
+   Same affordance as the evidence button, one step quieter so the primary
+   session controls still lead. */
+.guide-toggle--device {
+  gap: 7px;
+  border-color: var(--border);
+  background: rgba(var(--ink-rgb), 0.03);
+  color: var(--muted);
+}
+
+.guide-toggle--device:hover,
+.guide-toggle--device:focus-visible {
+  border-color: rgba(var(--accent-rgb), 0.55);
+  background: rgba(var(--accent-rgb), 0.1);
+  color: var(--ink);
+}
+
+.guide-toggle-ico {
+  font-size: 0.9em;
+  line-height: 1;
+}
+
+/* ── 3. State panel ────────────────────────────────────────────────────────
+   Before: a small dial + small word on the left, three short lines of
+   guidance on the right, and a band of dead space under both. Now the panel
+   is a real hierarchy — the state word is the largest thing on the page, the
+   guidance sits in its own tinted column, and the arousal ladder fills the
+   bottom edge instead of empty background. */
+@media (min-width: 900px) {
+  .state-card {
+    grid-template-columns: minmax(0, auto) minmax(0, 1fr) auto;
+    grid-template-rows: auto 1fr auto;
+    grid-template-areas:
+      "head head  head"
+      "main copy  scale"
+      "meta meta  meta";
+    column-gap: clamp(14px, 1.7vw, 24px);
+    padding-bottom: clamp(10px, 1.3vh, 14px);
+  }
+
+  .state-scale {
+    grid-area: scale;
+    align-self: stretch;
+    margin: 0;
+    padding-left: 19px;
+    padding-right: clamp(2px, 0.4vw, 8px);
+  }
+
+  /* The guidance column earns its width: tinted, padded, full height. */
+  .state-microcopy {
+    align-self: stretch;
+    padding: clamp(10px, 1.4vh, 16px) clamp(12px, 1.4vw, 18px);
+    border-left: 0;
+    border-radius: 12px;
+    background: rgba(var(--pulse-glow-rgb, var(--muted-rgb)), 0.07);
+    box-shadow: inset 3px 0 0 rgba(var(--pulse-glow-rgb, var(--muted-rgb)), 0.55);
+    transition: background 0.5s ease, box-shadow 0.5s ease;
+  }
+}
+
+/* The state word is the headline of the whole dashboard. */
+.state-readout .state {
+  font-size: clamp(2.1rem, 6.2vh, 3.5rem);
+  font-weight: 750;
+  line-height: 0.98;
+  letter-spacing: -0.03em;
+  text-transform: uppercase;
+}
+
+.state-readout .state.state--compact {
+  font-size: clamp(1.35rem, 3.4vh, 1.9rem);
+  letter-spacing: -0.01em;
+}
+
+.state-ring-caption {
+  margin-top: 6px;
+  font-size: 0.8rem;
+}
+
+/* The dial grows with the word so the pair still reads as one unit. */
+.state-dial {
+  width: clamp(58px, 9vh, 82px);
+  height: clamp(58px, 9vh, 82px);
+  border-width: 2px;
+}
+
+.state-main {
+  gap: clamp(14px, 1.5vw, 20px);
+}
+
+.state-microcopy-lead {
+  font-size: clamp(1.1rem, 2.6vh, 1.45rem);
+  color: var(--pulse-color, var(--ink));
+  transition: color 0.45s ease;
+}
+
+.state-microcopy-lines {
+  gap: 4px;
+  font-size: clamp(0.82rem, 1.7vh, 0.93rem);
+}
+
+/* ── Arousal ladder ────────────────────────────────────────────────────────
+   A quiet vertical rail beside the guidance, not a row of buttons under it:
+   four markers threaded on one line, with the live one lit. Reads as the scale
+   the state is being placed on, which is what it is. Driven entirely by the
+   .state-card.state-* class app.js already sets — no extra JS, nothing to keep
+   in sync. */
+.state-scale {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: clamp(4px, 0.8vh, 9px);
+  margin: clamp(10px, 1.4vh, 15px) 0 0;
+  padding: 2px 0 2px 17px;
+  list-style: none;
+}
+
+/* The rail itself, threaded behind the markers. */
+.state-scale::before {
+  content: "";
+  position: absolute;
+  top: 9px;
+  bottom: 9px;
+  left: 5px;
+  width: 1px;
+  background: linear-gradient(
+    to bottom,
+    transparent,
+    rgba(var(--ink-rgb), 0.16) 12%,
+    rgba(var(--ink-rgb), 0.16) 88%,
+    transparent);
+}
+
+.state-scale-step {
+  position: relative;
+  display: flex;
+  align-items: center;
+  color: rgba(var(--muted-rgb), 0.6);
+  font-size: 0.64rem;
+  font-weight: 600;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  transition: color 0.4s ease;
+}
+
+/* Hollow marker sitting on the rail; the panel colour behind it masks the
+   line so the dot reads as a station on the track. */
+.state-scale-dot {
+  position: absolute;
+  left: -17px;
+  width: 9px;
+  height: 9px;
+  border: 1.5px solid currentColor;
+  border-radius: 50%;
+  background: var(--panel);
+  opacity: 0.55;
+  transition: opacity 0.4s ease, box-shadow 0.4s ease,
+              background 0.4s ease, transform 0.4s ease;
+}
+
+.state-scale-step--calm     { --step-rgb: var(--calm-rgb); }
+.state-scale-step--stress   { --step-rgb: var(--stress-rgb); }
+.state-scale-step--anxiety  { --step-rgb: var(--anxiety-rgb); }
+.state-scale-step--recovery { --step-rgb: var(--recovery-rgb); }
+
+/* The live step: coloured label, filled marker with a soft halo. */
+.state-card.state-calm     .state-scale-step--calm,
+.state-card.state-stress   .state-scale-step--stress,
+.state-card.state-active   .state-scale-step--stress,
+.state-card.state-anxiety  .state-scale-step--anxiety,
+.state-card.state-recovery .state-scale-step--recovery {
+  color: rgb(var(--step-rgb));
+  font-weight: 700;
+}
+
+.state-card.state-calm     .state-scale-step--calm     .state-scale-dot,
+.state-card.state-stress   .state-scale-step--stress   .state-scale-dot,
+.state-card.state-active   .state-scale-step--stress   .state-scale-dot,
+.state-card.state-anxiety  .state-scale-step--anxiety  .state-scale-dot,
+.state-card.state-recovery .state-scale-step--recovery .state-scale-dot {
+  opacity: 1;
+  background: currentColor;
+  transform: scale(1.15);
+  box-shadow: 0 0 0 3.5px rgba(var(--step-rgb), 0.18);
+}
+
+/* Nothing is being classified yet — show the rail, but greyed out. */
+.state-card.state-calibrating .state-scale,
+.state-card.state-idle .state-scale,
+body.readings-stale .state-scale {
+  opacity: 0.4;
+}
+
+/* Stacked layout (phones / narrow): the rail sits under the guidance, still
+   vertical — a row of pills there would just be four more boxes. */
+@media (max-width: 899px) {
+  .state-scale {
+    padding-top: clamp(9px, 1.3vh, 13px);
+    border-top: 1px solid var(--hairline);
+    gap: clamp(7px, 1.2vh, 11px);
+  }
+
+  .state-scale::before {
+    top: 16px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .state-scale-step,
+  .state-scale-dot,
+  .state-microcopy,
+  .state-microcopy-lead {
+    transition: none;
+  }
+}
+
+/* `.instr-step strong` was written for the step title but matches emphasis
+   inside the body copy too, which broke every emphasised phrase onto its own
+   line. Only the title (first child) is a block. */
+.instr-step p strong,
+.instr-step p em {
+  display: inline;
+}

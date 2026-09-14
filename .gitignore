@@ -5,3 +5,8 @@ __pycache__/
 # Local editor / OS noise
 .DS_Store
 Thumbs.db
+
+# Runtime session artifacts — written by the app, one file per run.
+data/sessions/
+data/logs/*.pre_sessions.csv
+*.tmp

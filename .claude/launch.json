@@ -4,7 +4,10 @@
     {
       "name": "saarthi",
       "runtimeExecutable": "python",
-      "runtimeArgs": ["app.py"],
+      "runtimeArgs": [
+        "app.py",
+        "--mock"
+      ],
       "port": 5000
     }
   ]

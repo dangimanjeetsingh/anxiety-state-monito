@@ -44,6 +44,22 @@ class SerialConfig:
     # Turn it off with `--quiet` or ANXIETY_ECHO_SERIAL=0.
     echo_serial: bool = field(default_factory=lambda: _env_bool("ANXIETY_ECHO_SERIAL", True))
 
+    # ---- Mock (demonstration) stream ------------------------------------
+    # Which scripted scenario the mock generator plays when use_mock is on.
+    # "demo" walks the full arc CALM -> STRESS -> ANXIETY -> RECOVERY -> CALM
+    # -> ACTIVE -> CALM; the single-phase names hold one state indefinitely so
+    # a specific feature can be shown on demand.
+    #   demo | calm | stress | anxiety | activity | recovery
+    mock_scenario: str = field(
+        default_factory=lambda: os.environ.get("ANXIETY_MOCK_SCENARIO", "demo").strip().lower()
+    )
+    # Time compression for the scripted phases. 2.0 plays the arc twice as fast.
+    # Values above ~2 are not recommended: the feature stage averages over a
+    # 30 s window, so plateaus shorter than that never move the deltas.
+    mock_speed: float = field(default_factory=lambda: _env_float("ANXIETY_MOCK_SPEED", 1.0))
+    # Repeat the scenario after the last phase instead of holding calm.
+    mock_loop: bool = field(default_factory=lambda: _env_bool("ANXIETY_MOCK_LOOP", True))
+
 
 @dataclass
 class BaselineConfig:
