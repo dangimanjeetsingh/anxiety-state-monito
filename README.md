@@ -26,6 +26,7 @@ how it is configured, and where its limits are. The detail lives next to it.
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | The runtime pipeline stage by stage, backend module guide, frontend guide, HTTP/SSE contract, session lifecycle and report, CSV schema, ML pipeline |
 | [docs/CHANGELOG.md](docs/CHANGELOG.md) | Development journal: UI redesign phases, post-redesign rounds, accuracy corrections found in review, pre-freeze reliability pass |
 | [docs/TESTING.md](docs/TESTING.md) | Manual regression checklist and how to verify each state without hardware |
+| [docs/PRESENTATION_GUIDE.md](docs/PRESENTATION_GUIDE.md) | Slide-by-slide content for the Innovision 2026 deck: what to put on each of the 9 template slides, speaker scripts, screenshot list, demo runbook and judge Q&A |
 
 ## What the project does
 
