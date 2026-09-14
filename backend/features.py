@@ -242,8 +242,13 @@ class BaselineTracker:
             self._calib_started_t = t
         self._calib_buffer.append((t, hr, gsr))
         
-        # Prune samples strictly older than _calib_s
-        while self._calib_buffer and t - self._calib_buffer[0][0] > self._calib_s:
+        # Prune samples strictly older than _calib_s, but always keep the one
+        # sample that still makes the buffer span the full window. Dropping it
+        # left the span at (n * dt) for the largest n with n*dt <= _calib_s,
+        # which falls below the 0.95 * _calib_s check below as soon as the
+        # inter-sample spacing exceeds 1 s: a 10 s calibration on a perfectly
+        # calm 1.01 s/sample stream capped at 9.09 s and never locked.
+        while len(self._calib_buffer) > 1 and t - self._calib_buffer[1][0] > self._calib_s:
             self._calib_buffer.pop(0)
 
         # Check if the buffer covers at least the requested calibration time

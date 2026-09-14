@@ -21,6 +21,10 @@ from backend.config import SerialConfig
 
 LOG = logging.getLogger(__name__)
 
+# A separate logger so the raw feed can be silenced or redirected on its own
+# without touching the rest of the backend's logging.
+RAW_LOG = logging.getLogger("saarthi.serial")
+
 # Looser regex to match GSR and HR anywhere in the line, allowing floats and alternate names
 _GSR_RE = re.compile(r"(?:GSR|BSP)\s*[:=]\s*([+-]?\d*(?:\.\d+)?)", re.IGNORECASE)
 _HR_RE = re.compile(r"(?:HR|BPM)\s*[:=]\s*([+-]?\d*(?:\.\d+)?)", re.IGNORECASE)
@@ -134,12 +138,19 @@ class BluetoothReader:
                 self._on_status("disconnected", str(e))
                 break
 
+    def _echo(self, raw: str, parsed: Optional[str] = None) -> None:
+        """Print one inbound line to the terminal when echo is enabled."""
+        if not self._cfg.echo_serial:
+            return
+        RAW_LOG.info("%-28s %s", raw, parsed or "")
+
     def _handle_line(self, line: str) -> None:
         if not line:
             return
         lower = line.lower()
         if "finger" in lower or "place" in lower or "wait" in lower:
             LOG.debug("Device message: %s", line)
+            self._echo(line, "-> ignored (device message)")
             # Surface this to the UI as a sensor warning
             self._on_status("sensor_warning", "Place finger on sensor")
             return
@@ -148,12 +159,15 @@ class BluetoothReader:
 
         if not m_gsr or not m_hr:
             LOG.debug("Unparseable line: %s", line)
+            self._echo(line, "-> dropped (no GSR/HR match)")
             return
         try:
             gsr = float(m_gsr.group(1))
             hr = float(m_hr.group(1))
         except ValueError:
+            self._echo(line, "-> dropped (non-numeric value)")
             return
+        self._echo(line, "-> HR %6.1f bpm | GSR %6.1f" % (hr, gsr))
         # Good data received — reset silence tracking & restore connected status
         self._last_sample_ts = time.time()
         self._on_status("connected", None)
@@ -204,6 +218,7 @@ class BluetoothReader:
                     gsr += random.uniform(50.0, 100.0)
                 
             line = f"GSR:{int(gsr)},HR:{int(hr)}"
+            self._echo(line, "-> HR %6.1f bpm | GSR %6.1f  (mock)" % (hr, gsr))
             self._on_sample(Sample(gsr=gsr, hr=hr, raw_line=line))
             
             # Explicitly lock to 1 update per second

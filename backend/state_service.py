@@ -107,6 +107,9 @@ class AnxietyStateService:
         self._prev_rule_state: Optional[str] = None
         self._latest_hr: Optional[float] = None
         self._latest_gsr: Optional[float] = None
+        # Last (status, detail) actually written to the log, so a repeating
+        # status is applied every time but only announced once.
+        self._last_status_logged: Optional[tuple] = None
         self._snapshot = DashboardSnapshot(
             hr=None,
             gsr=None,
@@ -332,7 +335,11 @@ class AnxietyStateService:
                 self._snapshot.connection = status
                 self._snapshot.connection_detail = detail
                 self._snapshot.sensor_warning = None
-        LOG.info("Connection status: %s %s", status, detail or "")
+            changed = (status, detail) != self._last_status_logged
+            if changed:
+                self._last_status_logged = (status, detail)
+        if changed:
+            LOG.info("Connection status: %s %s", status, detail or "")
 
     def _on_sample(self, sample: Sample) -> None:
         with self._lock:

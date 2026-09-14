@@ -38,6 +38,11 @@ class SerialConfig:
     timeout_s: float = field(default_factory=lambda: _env_float("ANXIETY_SERIAL_TIMEOUT", 1.0))
     reconnect_delay_s: float = field(default_factory=lambda: _env_float("ANXIETY_RECONNECT_DELAY", 2.0))
     use_mock: bool = field(default_factory=lambda: _env_bool("ANXIETY_USE_MOCK_SERIAL", False))
+    # Echo every line received from the device to the terminal, one per line,
+    # including ones the parser rejects. ON by default: watching the raw feed is
+    # the normal way to tell a contact problem from a wiring or baud problem.
+    # Turn it off with `--quiet` or ANXIETY_ECHO_SERIAL=0.
+    echo_serial: bool = field(default_factory=lambda: _env_bool("ANXIETY_ECHO_SERIAL", True))
 
 
 @dataclass

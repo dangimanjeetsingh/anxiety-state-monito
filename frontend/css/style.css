@@ -2196,7 +2196,7 @@ body.drawer-open {
 }
 
 .rc-chart-wrap {
-  height: 110px;
+  height: 172px;
   background: rgba(var(--bg-base-rgb), 0.25);
   padding: 8px;
   border-radius: 8px;
@@ -3434,12 +3434,21 @@ body {
 
 .calibration-restart-btn[hidden] { display: none; }
 
+.rc-chart-wrap[hidden] { display: none; }
+
+.rc-skip-btn {
+  margin-top: 14px;
+}
+
 /* ── P6: Session report panel ───────────────────────────────────────────────
    The report replaces the live grid rather than covering it, so nothing is
    hidden behind a modal while a presenter talks through it. */
 body.report-open .cards,
 body.report-open .chart-wrap,
 body.report-open .status-strip,
+body.report-open .recovery-card,
+body.report-open .breathing-prompt,
+body.report-open .breathing-fab-wrap,
 body.report-open .calibration-banner {
   display: none !important;
 }
@@ -3665,4 +3674,1450 @@ body.report-open .calibration-banner {
   color: var(--muted);
   font-size: 11.5px;
   font-family: 'JetBrains Mono', Consolas, monospace;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   System walkthrough tab ("How Saarthi works")
+
+   Shares the existing guide drawer with the original research/evidence panel.
+   The drawer becomes a flex column so header + tab bar + scrolling panel size
+   themselves, replacing the fixed calc(100dvh - 85px) body height.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+.guide-drawer {
+  display: flex;
+  flex-direction: column;
+}
+
+.guide-drawer-header {
+  flex: none;
+}
+
+.guide-drawer-body {
+  flex: 1 1 auto;
+  height: auto;
+  min-height: 0;
+}
+
+.guide-tabs {
+  flex: none;
+  display: flex;
+  gap: 6px;
+  padding: 10px 22px 0;
+  border-bottom: 1px solid var(--border);
+  background: rgba(var(--bg-base-rgb), 0.35);
+}
+
+.guide-tab {
+  padding: 9px 14px 10px;
+  border: 1px solid transparent;
+  border-bottom: none;
+  border-radius: 9px 9px 0 0;
+  background: transparent;
+  color: var(--muted);
+  font-family: inherit;
+  font-size: 0.84rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  cursor: pointer;
+  transition: color 0.15s ease, background 0.15s ease;
+}
+
+.guide-tab:hover {
+  color: var(--ink);
+  background: rgba(var(--ink-rgb), 0.05);
+}
+
+.guide-tab:focus-visible {
+  outline: 2px solid rgba(var(--accent-rgb), 0.7);
+  outline-offset: -2px;
+}
+
+.guide-tab.is-active {
+  color: var(--ink);
+  border-color: var(--border);
+  background: var(--bg-elevated);
+  box-shadow: inset 0 2px 0 rgba(var(--accent-rgb), 0.85);
+}
+
+/* ── Pipeline ribbon ───────────────────────────────────────────────────── */
+
+.hiw-flow {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
+  gap: 6px;
+  margin: 0 0 20px;
+  padding: 0;
+  list-style: none;
+}
+
+.hiw-flow li {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  align-items: center;
+  padding: 10px 6px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: linear-gradient(160deg, rgba(var(--accent-rgb), 0.09), rgba(var(--bg-base-rgb), 0.25));
+  text-align: center;
+}
+
+.hiw-flow li + li::before {
+  content: "\203A";
+  position: absolute;
+  left: -7px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: rgba(var(--accent-rgb), 0.75);
+  font-size: 0.9rem;
+  line-height: 1;
+}
+
+.hiw-flow-ico {
+  font-size: 1.05rem;
+  line-height: 1.2;
+}
+
+.hiw-flow strong {
+  font-size: 0.8rem;
+}
+
+.hiw-flow small {
+  color: var(--muted);
+  font-size: 0.66rem;
+  line-height: 1.25;
+}
+
+/* ── Numbered steps ────────────────────────────────────────────────────── */
+
+.hiw-steps {
+  margin: 0 0 22px;
+  padding: 0;
+  list-style: none;
+}
+
+.hiw-step {
+  display: grid;
+  grid-template-columns: 30px 1fr;
+  gap: 12px;
+  padding: 0 0 16px;
+}
+
+.hiw-step:not(:last-child) .hiw-step-num::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 32px;
+  width: 1px;
+  height: calc(100% + 20px);
+  transform: translateX(-50%);
+  background: linear-gradient(180deg, rgba(var(--accent-rgb), 0.4), rgba(var(--accent-rgb), 0.06));
+}
+
+.hiw-step-num {
+  position: relative;
+  display: grid;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  border: 1px solid rgba(var(--accent-rgb), 0.45);
+  border-radius: 50%;
+  background: rgba(var(--accent-rgb), 0.14);
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.hiw-step-body {
+  min-width: 0;
+  padding: 12px 14px 13px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: rgba(var(--bg-panel-rgb), 0.6);
+}
+
+.hiw-step-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.hiw-step-head h4 {
+  margin: 0;
+  font-size: 0.98rem;
+}
+
+.hiw-chip {
+  padding: 3px 9px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: rgba(var(--ink-rgb), 0.05);
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.hiw-chip--tier {
+  border-color: rgba(var(--accent-rgb), 0.45);
+  background: rgba(var(--accent-rgb), 0.14);
+  color: var(--accent);
+}
+
+.hiw-chip--gate {
+  border-color: rgba(var(--calm-rgb), 0.45);
+  background: rgba(var(--calm-rgb), 0.13);
+  color: var(--calm);
+}
+
+.hiw-what {
+  margin: 0 0 9px;
+  font-size: 0.86rem;
+  line-height: 1.5;
+}
+
+.hiw-meta {
+  display: grid;
+  gap: 5px;
+  margin: 0;
+}
+
+.hiw-meta > div {
+  display: grid;
+  grid-template-columns: 88px 1fr;
+  gap: 8px;
+  align-items: baseline;
+}
+
+.hiw-meta dt {
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.hiw-meta dd {
+  margin: 0;
+  color: rgba(var(--ink-rgb), 0.9);
+  font-size: 0.8rem;
+  line-height: 1.45;
+}
+
+.hiw-out {
+  padding: 1px 6px;
+  border: 1px solid rgba(var(--calm-rgb), 0.35);
+  border-radius: 5px;
+  background: rgba(var(--calm-rgb), 0.1);
+  color: var(--calm);
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+}
+
+.hiw-caveat {
+  margin: 9px 0 0;
+  padding-top: 8px;
+  border-top: 1px dashed var(--border);
+  color: var(--muted);
+  font-size: 0.75rem;
+  line-height: 1.45;
+}
+
+/* ── Step-specific visuals ─────────────────────────────────────────────── */
+
+.hiw-featgrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(104px, 1fr));
+  gap: 4px;
+  margin: 0 0 10px;
+}
+
+.hiw-featgrid span {
+  padding: 5px 7px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: rgba(var(--bg-base-rgb), 0.4);
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 0.67rem;
+  text-align: center;
+}
+
+.hiw-featgrid span.is-key {
+  border-color: rgba(var(--accent-rgb), 0.45);
+  background: rgba(var(--accent-rgb), 0.12);
+  color: var(--ink);
+}
+
+.hiw-rules {
+  display: grid;
+  gap: 5px;
+  margin: 0 0 10px;
+}
+
+.hiw-rule {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 9px;
+  border: 1px solid var(--border);
+  border-left-width: 3px;
+  border-radius: 8px;
+  background: rgba(var(--bg-base-rgb), 0.4);
+  font-size: 0.78rem;
+}
+
+.hiw-rule code {
+  font-family: var(--font-mono);
+  font-size: 0.74rem;
+}
+
+.hiw-rule--stress   { border-left-color: var(--stress); }
+.hiw-rule--anxiety  { border-left-color: var(--anxiety); }
+.hiw-rule--recovery { border-left-color: var(--recovery); }
+
+.hiw-fusion {
+  display: grid;
+  gap: 5px;
+  margin: 0 0 10px;
+}
+
+.hiw-fusion-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 9px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: rgba(var(--bg-base-rgb), 0.4);
+  font-size: 0.74rem;
+}
+
+.hiw-fusion-in {
+  padding: 3px 7px;
+  border-radius: 6px;
+  background: rgba(var(--ink-rgb), 0.06);
+  color: var(--muted);
+}
+
+.hiw-fusion-op {
+  color: var(--muted);
+}
+
+.hiw-fusion-arrow {
+  color: rgba(var(--accent-rgb), 0.85);
+}
+
+.hiw-fusion-out {
+  padding: 3px 8px;
+  border-radius: 6px;
+  font-weight: 600;
+}
+
+.hiw-fusion-out small {
+  font-weight: 500;
+  opacity: 0.75;
+}
+
+.hiw-fusion-out.is-both {
+  background: rgba(var(--anxiety-rgb), 0.16);
+  color: var(--anxiety);
+}
+
+.hiw-fusion-out.is-held {
+  background: rgba(var(--stress-rgb), 0.16);
+  color: var(--stress);
+}
+
+.hiw-fsm {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px;
+  margin: 0 0 10px;
+  padding: 9px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: rgba(var(--bg-base-rgb), 0.4);
+}
+
+.hiw-fsm-arrow {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  color: rgba(var(--accent-rgb), 0.85);
+  font-size: 0.8rem;
+  line-height: 1;
+}
+
+.hiw-fsm-arrow small {
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 0.6rem;
+}
+
+/* ── Limitations & future work ─────────────────────────────────────────── */
+
+.hiw-limits {
+  margin-top: 4px;
+  padding: 16px 16px 18px;
+  border: 1px solid rgba(var(--stress-rgb), 0.3);
+  border-radius: 14px;
+  background: linear-gradient(160deg, rgba(var(--stress-rgb), 0.07), rgba(var(--bg-base-rgb), 0.3));
+}
+
+.hiw-limits-head h3 {
+  margin: 0 0 2px;
+  font-size: 1.04rem;
+}
+
+.hiw-limits-intro {
+  margin: 0 0 12px;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.hiw-limit-list {
+  margin: 0 0 16px;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 8px;
+}
+
+.hiw-limit-list li {
+  padding: 9px 11px;
+  border: 1px solid var(--border);
+  border-left: 3px solid rgba(var(--stress-rgb), 0.6);
+  border-radius: 8px;
+  background: rgba(var(--bg-panel-rgb), 0.55);
+  font-size: 0.8rem;
+  line-height: 1.5;
+}
+
+.hiw-limit-list strong {
+  display: block;
+  margin-bottom: 2px;
+}
+
+.hiw-future {
+  padding: 12px 13px 13px;
+  border: 1px dashed rgba(var(--recovery-rgb), 0.5);
+  border-radius: 10px;
+  background: rgba(var(--recovery-rgb), 0.07);
+}
+
+.hiw-future-label {
+  margin: 0 0 9px;
+  color: var(--muted);
+  font-size: 0.76rem;
+  line-height: 1.45;
+}
+
+.hiw-future-badge {
+  display: inline-block;
+  margin-right: 6px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(var(--recovery-rgb), 0.22);
+  color: var(--recovery);
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.hiw-future-list {
+  margin: 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 5px;
+  font-size: 0.79rem;
+  line-height: 1.45;
+}
+
+.hiw-future-list li {
+  color: rgba(var(--ink-rgb), 0.88);
+}
+
+@media (max-width: 560px) {
+  .hiw-meta > div {
+    grid-template-columns: 1fr;
+    gap: 1px;
+  }
+
+  .hiw-flow li + li::before {
+    content: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .guide-tab {
+    transition: none;
+  }
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   Final UI audit — corrections to layout, state coverage and affordances.
+   Appended last so it wins over the earlier phase-by-phase blocks without
+   having to unpick them.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/* ── Header ────────────────────────────────────────────────────────────────
+   The action row was `nowrap` and unbounded, so below ~1000px the subtitle
+   collapsed into a four-line column and, on a phone, the chip and the
+   Sessions button ran off both edges of the viewport. */
+.header {
+  flex-wrap: wrap;
+  row-gap: 10px;
+}
+
+.header-title-group {
+  min-width: 0;
+  /* `auto`, not a length: at <=430px the header is a column, where a length
+     basis would be read as a height and inflate the title block. */
+  flex: 1 1 auto;
+}
+
+.header-title-group > div {
+  min-width: 0;
+}
+
+.header-actions {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  row-gap: 8px;
+}
+
+/* Between a phone and a laptop the subtitle is the first thing worth losing:
+   the product name and the controls both stay whole. */
+@media (max-width: 1330px) {
+  .sub {
+    display: none;
+  }
+}
+
+/* Nothing on this page should be reachable by scrolling sideways. */
+html,
+body {
+  overflow-x: hidden;
+}
+
+@media (max-width: 640px) {
+  .header {
+    align-items: flex-start;
+  }
+
+  .header-actions {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .session-controls {
+    flex-wrap: wrap;
+  }
+
+  .guide-toggle,
+  .status-pill--calibrated {
+    flex: 1 1 auto;
+    justify-content: center;
+  }
+}
+
+/* ── Connection pill ───────────────────────────────────────────────────────
+   "Mock serial (synthetic test mo…" told nobody anything. The label is short
+   enough to fit once the cap is raised to something realistic. */
+.status-row .status-bar {
+  max-width: 330px;
+}
+
+/* ── Idle state card ───────────────────────────────────────────────────────
+   Between sessions the card had no state class at all, so the caption and the
+   guidance column were both empty and it read as a half-rendered panel. */
+.state-card.state-idle .state-ring-caption--idle,
+.state-card.state-idle .state-microcopy--idle {
+  display: block;
+}
+
+.state-card.state-idle .state-microcopy--idle {
+  display: flex;
+}
+
+.state-card.state-idle {
+  --pulse-color: var(--muted);
+  --pulse-glow-rgb: var(--muted-rgb);
+}
+
+.state-card.state-idle .state-readout .state {
+  color: var(--muted);
+}
+
+/* ── Breathing FAB ─────────────────────────────────────────────────────────
+   It is disabled outside a session but looked identical to the live button,
+   so the first click of a demo did nothing with no explanation. */
+.breathing-fab:disabled {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  color: var(--muted);
+  box-shadow: none;
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.breathing-fab:disabled:hover {
+  transform: none;
+  box-shadow: none;
+}
+
+/* The decorative label overlapped the recovery chart and the report on any
+   screen narrower than a large desktop. Keep it where there is room for it. */
+@media (max-width: 1400px) {
+  .breathing-fab-label {
+    display: none;
+  }
+}
+
+/* ── Breathing modal telemetry ─────────────────────────────────────────────
+   "Cycles completed" wrapped to two lines while its neighbours did not, which
+   knocked the four values out of a shared baseline. */
+.bm-telemetry-item {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  height: 100%;
+  text-align: center;
+}
+
+.bm-telemetry-item span {
+  min-height: 2.1em;
+}
+
+/* ── Report panel ──────────────────────────────────────────────────────────
+   Sections whose content is fixed carry no reliability caveat. */
+.rp-section.rp-no-tag .rp-provisional-tag {
+  display: none;
+}
+
+/* The recovery window can be closed on demand; make that read as a control. */
+.rc-skip-btn {
+  border: 1px solid var(--border);
+  padding: 8px 16px;
+  border-radius: var(--radius-sm);
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   Session report — single-screen briefing
+   ─────────────────────────────────────────────────────────────────────────
+   The report is a sheet, not a scroll: header, five headline figures, then a
+   two-column body. Only the episode table scrolls, so the sheet's height is
+   bounded by the viewport and a reader never loses the KPIs to scrolling.
+   Everything that used to be a full-width section and is still worth keeping
+   now lives behind the "Method & audit trail" disclosure.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+body.report-open .instructions,
+body.report-open .status-row,
+body.report-open .footer {
+  display: none !important;
+}
+
+.report-panel {
+  display: flex;
+  flex-direction: column;
+  gap: clamp(10px, 1.4vh, 15px);
+  max-height: calc(100dvh - 40px);
+  padding: clamp(14px, 1.8vh, 20px) clamp(16px, 1.6vw, 24px);
+  margin-bottom: 0;
+  overflow: hidden;
+}
+
+/* ── Header ─────────────────────────────────────────────────────────────── */
+.rp-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding-bottom: clamp(10px, 1.3vh, 14px);
+  border-bottom: 1px solid var(--hairline);
+}
+
+.rp-ident {
+  min-width: 0;
+}
+
+.rp-ident h2 {
+  margin: 2px 0 0;
+  font-size: clamp(1.15rem, 2.6vh, 1.55rem);
+  line-height: 1.15;
+}
+
+.rp-meta {
+  margin: 4px 0 0;
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+
+.rp-header-right {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.rp-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.rp-header-actions .btn {
+  padding: 8px 14px;
+  font-size: 0.78rem;
+}
+
+/* Reliability reads as one chip, not a stacked callout block. */
+.rp-reliability {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  max-width: 330px;
+  margin: 0;
+  padding: 7px 13px;
+  border: 1px solid var(--border);
+  border-left-width: 3px;
+  border-radius: var(--radius-sm);
+  background: rgba(var(--ink-rgb), 0.03);
+}
+
+.rp-reliability strong {
+  font-size: 0.76rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink);
+}
+
+.rp-reliability span {
+  font-size: 0.72rem;
+  line-height: 1.35;
+  color: var(--muted);
+}
+
+.rp-reliability.grade-good {
+  border-left-color: var(--calm);
+  background: rgba(var(--calm-rgb), 0.08);
+}
+.rp-reliability.grade-good strong { color: var(--calm); }
+
+.rp-reliability.grade-limited {
+  border-left-color: var(--stress);
+  background: rgba(var(--stress-rgb), 0.08);
+}
+.rp-reliability.grade-limited strong { color: var(--stress); }
+
+.rp-reliability.grade-insufficient,
+.rp-reliability.grade-unknown {
+  border-left-color: var(--anxiety);
+  background: rgba(var(--anxiety-rgb), 0.08);
+}
+.rp-reliability.grade-insufficient strong,
+.rp-reliability.grade-unknown strong { color: var(--anxiety); }
+
+.rp-downloads {
+  display: flex;
+  gap: 6px;
+}
+
+.rp-download {
+  padding: 7px 11px;
+  font-size: 0.72rem;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+}
+
+/* ── Headline figures ───────────────────────────────────────────────────── */
+.rp-kpis {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: clamp(8px, 0.9vw, 12px);
+  flex: 0 0 auto;
+}
+
+.rp-kpi {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  padding: clamp(9px, 1.2vh, 13px) clamp(11px, 1vw, 15px);
+  border: 1px solid var(--border);
+  border-top: 2px solid var(--muted);
+  border-radius: var(--radius-sm);
+  background: rgba(var(--ink-rgb), 0.03);
+}
+
+.rp-kpi-label {
+  font-size: 0.64rem;
+  font-weight: 650;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.rp-kpi-val {
+  font-family: var(--font-mono);
+  font-size: clamp(1.15rem, 2.9vh, 1.6rem);
+  font-weight: 700;
+  line-height: 1.15;
+  letter-spacing: -0.02em;
+  color: var(--ink);
+}
+
+.rp-kpi-sub {
+  font-size: 0.7rem;
+  line-height: 1.35;
+  color: var(--muted);
+}
+
+.rp-kpi--good { border-top-color: var(--calm); }
+.rp-kpi--good .rp-kpi-val { color: var(--calm); }
+.rp-kpi--warn { border-top-color: var(--stress); }
+.rp-kpi--warn .rp-kpi-val { color: var(--stress); }
+.rp-kpi--bad { border-top-color: var(--anxiety); }
+.rp-kpi--bad .rp-kpi-val { color: var(--anxiety); }
+
+.rp-kpi--missing .rp-kpi-val {
+  font-size: 1rem;
+  font-style: italic;
+  color: var(--muted);
+}
+
+/* ── Two-column body ────────────────────────────────────────────────────── */
+.rp-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1.5fr) minmax(280px, 1fr);
+  gap: clamp(10px, 1.2vw, 16px);
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.rp-col {
+  display: flex;
+  flex-direction: column;
+  gap: clamp(10px, 1.3vh, 14px);
+  min-height: 0;
+}
+
+.rp-block {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+  padding: clamp(10px, 1.3vh, 14px) clamp(12px, 1vw, 16px);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: rgba(var(--ink-rgb), 0.02);
+}
+
+.rp-block--grow {
+  flex: 1 1 auto;
+}
+
+.rp-block h3 {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 0;
+  font-size: 0.64rem;
+  font-weight: 650;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.rp-block-note {
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--muted);
+}
+
+/* ── Facts: a dense definition list, aligned on one gutter ──────────────── */
+.rp-facts {
+  display: grid;
+  grid-template-columns: minmax(0, auto) minmax(0, 1fr);
+  align-items: baseline;
+  gap: 4px 14px;
+  margin: 0;
+}
+
+.rp-facts dt {
+  font-size: 0.74rem;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.rp-facts dd {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  text-align: right;
+  color: var(--ink);
+}
+
+.rp-facts dd.is-missing {
+  font-family: var(--font-body);
+  font-size: 0.72rem;
+  font-style: italic;
+  color: var(--muted);
+}
+
+/* ── State timeline ─────────────────────────────────────────────────────── */
+.rp-timeline {
+  display: flex;
+  height: 12px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(var(--ink-rgb), 0.07);
+}
+
+.rp-timeline-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  font-size: 0.73rem;
+  color: var(--muted);
+}
+
+.rp-tl-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.rp-tl-changes {
+  margin-left: auto;
+  font-style: italic;
+  opacity: 0.8;
+}
+
+/* ── Episode table ──────────────────────────────────────────────────────── */
+.rp-episodes {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  margin: 0 -4px;
+  padding: 0 4px;
+}
+
+.rp-episode-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.76rem;
+}
+
+.rp-episode-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 0 8px 6px 0;
+  text-align: left;
+  font-size: 0.63rem;
+  font-weight: 650;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+  /* Opaque, so rows scrolling under the sticky header do not show through. */
+  background: #17171F;
+  border-bottom: 1px solid var(--hairline);
+}
+
+.rp-episode-table td {
+  padding: 6px 8px 6px 0;
+  border-bottom: 1px solid rgba(var(--ink-rgb), 0.05);
+  font-family: var(--font-mono);
+  color: var(--ink);
+  white-space: nowrap;
+}
+
+.rp-episode-table td:first-child {
+  width: 1%;
+  color: var(--muted);
+}
+
+.rp-episode-table td:last-child {
+  font-family: var(--font-body);
+  color: var(--muted);
+  white-space: normal;
+}
+
+.rp-episode-table td.is-dim {
+  color: var(--muted);
+  opacity: 0.6;
+}
+
+.rp-episode-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.rp-ep-tag {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-family: var(--font-body);
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+}
+
+.rp-ep-tag.state-stress {
+  background: rgba(var(--stress-rgb), 0.16);
+  color: var(--stress);
+}
+
+.rp-ep-tag.state-anxiety {
+  background: rgba(var(--anxiety-rgb), 0.16);
+  color: var(--anxiety);
+}
+
+.rp-ep-tag.state-recovery {
+  background: rgba(var(--recovery-rgb), 0.16);
+  color: var(--recovery);
+}
+
+/* ── Breathing exercise outcome ─────────────────────────────────────────── */
+.rp-interv {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.rp-interv + .rp-interv {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--hairline);
+}
+
+.rp-interv-head {
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+
+.rp-interv-hero {
+  font-family: var(--font-mono);
+  font-size: clamp(0.98rem, 2.2vh, 1.2rem);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+}
+
+.rp-interv-hero.is-good { color: var(--calm); }
+.rp-interv-hero.is-flat { color: var(--stress); }
+
+.rp-empty {
+  margin: 0;
+  font-size: 0.76rem;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+.rp-missing {
+  margin: 0;
+  font-size: 0.74rem;
+  font-style: italic;
+  color: var(--muted);
+}
+
+/* ── Audit trail: everything deep, one click away ───────────────────────── */
+.rp-audit {
+  flex: 0 0 auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: rgba(var(--ink-rgb), 0.02);
+}
+
+.rp-audit > summary {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 9px 14px;
+  cursor: pointer;
+  font-size: 0.74rem;
+  font-weight: 650;
+  color: var(--ink);
+  list-style: none;
+}
+
+.rp-audit > summary::-webkit-details-marker { display: none; }
+
+.rp-audit > summary::before {
+  content: "\203a";
+  display: inline-block;
+  font-size: 1rem;
+  line-height: 1;
+  color: var(--muted);
+  transition: transform 0.18s ease;
+}
+
+.rp-audit[open] > summary::before {
+  transform: rotate(90deg);
+}
+
+.rp-audit > summary:hover,
+.rp-audit > summary:focus-visible {
+  color: var(--accent);
+}
+
+.rp-audit-hint {
+  font-weight: 500;
+  font-size: 0.7rem;
+  color: var(--muted);
+}
+
+/* Opening the audit trail is a deliberate act, so it is allowed to scroll. */
+.rp-audit-body {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  gap: 14px 24px;
+  max-height: 34vh;
+  overflow: auto;
+  padding: 4px 14px 14px;
+}
+
+.rp-audit-section--wide {
+  grid-column: 1 / -1;
+}
+
+.rp-audit-section h4 {
+  margin: 0 0 7px;
+  font-size: 0.63rem;
+  font-weight: 650;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.rp-audit-section p,
+.rp-narrative p {
+  margin: 0 0 7px;
+  font-size: 0.76rem;
+  line-height: 1.55;
+  color: rgba(var(--ink-rgb), 0.85);
+}
+
+.rp-audit-section p:last-child,
+.rp-narrative p:last-child {
+  margin-bottom: 0;
+}
+
+.rp-status-banner {
+  flex: 0 0 auto;
+  margin: 0;
+  padding: 8px 13px;
+  border: 1px solid rgba(var(--stress-rgb), 0.5);
+  border-radius: var(--radius-sm);
+  background: rgba(var(--stress-rgb), 0.1);
+  font-size: 0.76rem;
+  font-weight: 600;
+  color: var(--stress);
+}
+
+.rp-status-banner[hidden] { display: none; }
+
+.rp-disclaimer {
+  flex: 0 0 auto;
+  margin: 0;
+  font-size: 0.68rem;
+  line-height: 1.45;
+  color: var(--muted);
+  opacity: 0.8;
+}
+
+/* ── Narrow screens: the sheet becomes a normal scrolling page again ────── */
+@media (max-width: 1060px) {
+  .rp-kpis {
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  }
+
+  .rp-body {
+    grid-template-columns: 1fr;
+  }
+
+  .report-panel {
+    max-height: none;
+    overflow: visible;
+  }
+
+  .rp-episodes {
+    overflow-x: auto;
+  }
+
+  .rp-header-right {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .rp-audit-body {
+    max-height: none;
+  }
+}
+
+@media (max-width: 560px) {
+  .rp-facts dt { white-space: normal; }
+  .rp-downloads { flex-wrap: wrap; }
+}
+
+/* The audit trail expands the sheet into a document instead of squeezing the
+   summary; the closed state stays a bounded, non-scrolling single screen. */
+.report-panel.audit-open {
+  max-height: none;
+  overflow: visible;
+}
+
+.report-panel.audit-open .rp-body {
+  min-height: 360px;
+}
+
+.report-panel.audit-open .rp-episodes {
+  overflow: visible;
+}
+
+.report-panel.audit-open .rp-audit-body {
+  max-height: none;
+}
+
+/* On a short screen (1280x720 and similar) flex items were shrinking past
+   their content and the side blocks overlapped each other. Blocks now keep
+   their natural height and each column scrolls on its own instead. */
+.rp-block {
+  flex: 0 0 auto;
+  overflow: hidden;
+}
+
+.rp-block--grow {
+  flex: 1 1 auto;
+}
+
+.rp-col {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 2px;
+}
+
+.rp-episodes {
+  overflow: visible;
+}
+
+.report-panel.audit-open .rp-col {
+  overflow: visible;
+}
+
+/* A thin, unobtrusive scrollbar — the columns scroll only when a session is
+   busy enough to need it. */
+.rp-col::-webkit-scrollbar,
+.rp-audit-body::-webkit-scrollbar {
+  width: 6px;
+}
+
+.rp-col::-webkit-scrollbar-thumb,
+.rp-audit-body::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: rgba(var(--ink-rgb), 0.16);
+}
+
+.rp-col::-webkit-scrollbar-track,
+.rp-audit-body::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+@media (max-width: 1060px) {
+  .rp-col {
+    overflow: visible;
+  }
+}
+
+/* Never clip a block's own content: blocks grow but do not shrink, and the
+   column that holds them scrolls if a busy session needs more room. */
+.rp-block {
+  overflow: visible;
+}
+
+.rp-block--grow {
+  flex: 1 0 auto;
+}
+
+/* Short laptop screens (1280x720, 1366x768 at higher zoom): trim the vertical
+   rhythm so a typical session still lands inside one screen unscrolled. */
+@media (max-height: 780px) and (min-width: 1061px) {
+  .report-panel {
+    gap: 9px;
+    padding: 12px 18px;
+  }
+
+  .rp-kpi {
+    padding: 7px 12px;
+  }
+
+  .rp-kpi-val {
+    font-size: 1.25rem;
+  }
+
+  .rp-block {
+    padding: 9px 12px;
+    gap: 6px;
+  }
+
+  .rp-col {
+    gap: 9px;
+  }
+
+  .rp-episode-table td {
+    padding: 4px 8px 4px 0;
+  }
+
+  .rp-facts {
+    gap: 3px 14px;
+  }
+
+  .rp-ident h2 {
+    font-size: 1.15rem;
+  }
+}
+
+/* Phone: the header's three groups stack as three clean rows rather than
+   wrapping mid-group. */
+@media (max-width: 620px) {
+  .rp-header-right {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
+
+  .rp-reliability {
+    max-width: none;
+  }
+
+  .rp-header-actions {
+    justify-content: space-between;
+  }
+
+  .rp-downloads {
+    flex: 1 1 auto;
+    flex-wrap: nowrap;
+  }
+
+  .rp-download {
+    flex: 1 1 0;
+    justify-content: center;
+    text-align: center;
+  }
+}
+
+/* On a tall screen the sheet should use the height it has, rather than
+   scrolling a column while several hundred pixels sit empty underneath. */
+@media (min-width: 1061px) {
+  body.report-open .layout > .report-panel {
+    flex: 1 1 auto;
+    min-height: 0;
+    max-height: none;
+  }
+}
+
+/* The episode list scrolls inside its own card, so its sticky column header
+   never has the block above it showing through the gap. The main column
+   itself then never needs to scroll. */
+.rp-col--main {
+  overflow: hidden;
+}
+
+.rp-col--main .rp-block--grow {
+  flex: 1 1 auto;
+  min-height: 110px;
+}
+
+.rp-col--main .rp-episodes {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+}
+
+.rp-col--main .rp-episodes::-webkit-scrollbar {
+  width: 6px;
+}
+
+.rp-col--main .rp-episodes::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: rgba(var(--ink-rgb), 0.16);
+}
+
+.report-panel.audit-open .rp-col--main,
+.report-panel.audit-open .rp-col--main .rp-episodes {
+  overflow: visible;
+}
+
+@media (max-width: 1060px) {
+  .rp-col--main,
+  .rp-col--main .rp-episodes {
+    overflow: visible;
+  }
+
+  .rp-col--main .rp-episodes {
+    overflow-x: auto;
+  }
+}
+
+/* ── Held readings ─────────────────────────────────────────────────────────
+   While the sensor reports "Place finger", the link is still up and the last
+   values are still on screen. They must not read as live measurements: the
+   numbers dim and carry a "held" marker until a good sample arrives. */
+body.readings-stale .metric-value .value,
+body.readings-stale .state-readout .state {
+  opacity: 0.45;
+  transition: opacity 0.25s ease;
+}
+
+body.readings-stale .metric-block {
+  position: relative;
+}
+
+body.readings-stale .metric-top::after {
+  content: "held";
+  position: absolute;
+  top: 0;
+  right: 0;
+  padding: 2px 7px;
+  border: 1px solid rgba(var(--stress-rgb), 0.5);
+  border-radius: 999px;
+  background: rgba(var(--stress-rgb), 0.12);
+  color: var(--stress);
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+body.readings-stale .metric-trend,
+body.readings-stale .mini-bar {
+  opacity: 0.3;
+}
+
+/* The state ring's pulse implies a live signal; stop it while nothing is
+   being evaluated. */
+body.readings-stale .state-card {
+  animation: none;
+}
+
+body.readings-stale .state-card .state-dial {
+  opacity: 0.5;
 }

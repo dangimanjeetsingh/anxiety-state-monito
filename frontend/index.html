@@ -42,7 +42,7 @@
             </span>
           </button>
           <button class="guide-toggle" id="guideToggle" type="button" aria-controls="interpretationDrawer" aria-expanded="false">
-            Research &amp; Evidence
+            How it works &amp; Evidence
             <span class="guide-toggle-chevron" aria-hidden="true">&#8250;</span>
           </button>
         </div>
@@ -141,6 +141,7 @@
               <p class="state-ring-caption state-ring-caption--anxiety">High arousal detected</p>
               <p class="state-ring-caption state-ring-caption--recovery">Arousal decreasing</p>
               <p class="state-ring-caption state-ring-caption--calibrating" id="stateCalibratingPct">Establishing baseline</p>
+            <p class="state-ring-caption state-ring-caption--idle">No session &middot; sensor check only</p>
             </div>
           </div>
           <div class="state-microcopy" aria-hidden="true">
@@ -148,6 +149,7 @@
             <p class="state-microcopy-lines state-microcopy--stress"><span class="state-microcopy-lead">Breathe.</span><span>Be aware.</span><span>You've got this.</span></p>
             <p class="state-microcopy-lines state-microcopy--anxiety"><span class="state-microcopy-lead">You're safe.</span><span>Slow it down.</span><span>One breath at a time.</span></p>
             <p class="state-microcopy-lines state-microcopy--recovery"><span class="state-microcopy-lead">Good work.</span><span>Keep breathing.</span><span>Almost there.</span></p>
+            <p class="state-microcopy-lines state-microcopy--idle"><span class="state-microcopy-lead">Ready when you are.</span><span>Start a session to measure a baseline.</span><span>Nothing is recorded yet.</span></p>
             <p class="state-microcopy-lines state-microcopy--calibrating"><span class="state-microcopy-lead">Sit still and relax.</span><span>Reading your baseline HR &amp; GSR.</span><span>Prediction starts automatically.</span></p>
           </div>
           <p class="meta" id="metaVal">Rules &middot; ML</p>
@@ -209,7 +211,7 @@
           </div>
           <button type="button" class="guide-close" id="rcCloseBtn" aria-label="Close summary">&times;</button>
         </div>
-        <p class="rc-intro">Here's what your readings did during and after the exercise:</p>
+        <p class="rc-intro" id="rcIntro">Here's what your readings did during and after the exercise:</p>
         <div class="rc-grid">
           <div class="rc-stat">
             <span class="rc-stat-label">Heart rate change</span>
@@ -224,10 +226,10 @@
           <div class="rc-stat">
             <span class="rc-stat-label">Total tracked window</span>
             <span class="rc-stat-val" id="rcDurationVal">—</span>
-            <span class="rc-stat-desc">Exercise duration + 60s recovery</span>
+            <span class="rc-stat-desc" id="rcDurationDesc">Exercise duration + 60s recovery</span>
           </div>
         </div>
-        <div class="rc-chart-wrap">
+        <div class="rc-chart-wrap" id="rcChartWrap">
           <canvas id="recoveryChart" height="90"></canvas>
         </div>
       </section>
@@ -237,74 +239,99 @@
         <canvas id="liveChart" height="120"></canvas>
       </section>
 
-      <!-- ── P6: Session report panel (replaces the live grid when open) ───── -->
+      <!-- ── Session report: a single-screen briefing ───────────────────────
+           Five headline figures, then the two things a reader actually acts
+           on — what the session looked like over time, and how much of it to
+           trust. Everything deeper stays available under "Method & audit
+           trail" rather than being deleted. ──────────────────────────────── -->
       <section class="report-panel" id="reportPanel" hidden aria-labelledby="rpLabel">
         <header class="rp-header">
-          <div>
+          <div class="rp-ident">
             <p class="eyebrow">Session report</p>
             <h2 id="rpLabel">Session</h2>
             <p class="rp-meta" id="rpMeta"></p>
           </div>
-          <div class="rp-header-actions">
-            <button type="button" class="btn btn-primary" id="rpNewSessionBtn">Start New Session</button>
-            <button type="button" class="guide-close" id="rpCloseBtn" aria-label="Close report">&times;</button>
+          <div class="rp-header-right">
+            <div class="rp-reliability" id="rpReliability"></div>
+            <div class="rp-header-actions">
+              <div class="rp-downloads" id="rpDownloads"></div>
+              <button type="button" class="btn btn-primary" id="rpNewSessionBtn">New session</button>
+              <button type="button" class="guide-close" id="rpCloseBtn" aria-label="Close report">&times;</button>
+            </div>
           </div>
         </header>
 
         <p class="rp-status-banner" id="rpStatusBanner" hidden></p>
-        <div class="rp-reliability" id="rpReliability"></div>
 
-        <div class="rp-section">
-          <h3>Summary</h3>
-          <div class="rp-narrative" id="rpNarrative"></div>
+        <div class="rp-kpis" id="rpKpis"></div>
+
+        <div class="rp-body">
+          <div class="rp-col rp-col--main">
+            <section class="rp-block">
+              <h3>Time in each state</h3>
+              <div class="rp-timeline" id="rpTimeline" aria-hidden="true"></div>
+              <div class="rp-timeline-legend" id="rpTimelineLegend"></div>
+            </section>
+
+            <section class="rp-block rp-block--grow">
+              <h3>Episodes <span class="rp-block-note" id="rpEpisodesNote"></span></h3>
+              <div class="rp-episodes" id="rpEpisodes"></div>
+            </section>
+          </div>
+
+          <div class="rp-col rp-col--side">
+            <section class="rp-block">
+              <h3>Personal baseline <span class="rp-block-note" id="rpBaselineNote"></span></h3>
+              <dl class="rp-facts" id="rpBaseline"></dl>
+            </section>
+
+            <section class="rp-block">
+              <h3>Signal quality <span class="rp-block-note" id="rpQualityNote"></span></h3>
+              <dl class="rp-facts" id="rpQuality"></dl>
+            </section>
+
+            <section class="rp-block rp-block--grow">
+              <h3>Breathing exercise</h3>
+              <div class="rp-interventions" id="rpInterventions"></div>
+            </section>
+          </div>
         </div>
 
-        <div class="rp-section">
-          <h3>Baseline and physiology</h3>
-          <div class="rp-stats" id="rpStats"></div>
-        </div>
+        <details class="rp-audit">
+          <summary>
+            <span>Method &amp; audit trail</span>
+            <span class="rp-audit-hint">narrative, decision provenance, early-warning log</span>
+          </summary>
+          <div class="rp-audit-body">
+            <div class="rp-audit-section">
+              <h4>Session narrative</h4>
+              <div class="rp-narrative" id="rpNarrative"></div>
+            </div>
+            <div class="rp-audit-section">
+              <h4>Physiology in full</h4>
+              <dl class="rp-facts" id="rpPhysiology"></dl>
+            </div>
+            <div class="rp-audit-section">
+              <h4>Early warnings</h4>
+              <dl class="rp-facts" id="rpWarnings"></dl>
+            </div>
+            <div class="rp-audit-section">
+              <h4>How the estimates were produced</h4>
+              <dl class="rp-facts" id="rpProvenance"></dl>
+            </div>
+            <div class="rp-audit-section rp-audit-section--wide">
+              <h4>Method notes</h4>
+              <p>
+                States come from a rule engine and a trained model, fused, smoothed over a
+                seven-sample majority vote, and held by a state machine with hysteresis. Deltas are
+                measured against the personal baseline recorded at the start of this session.
+                Early warnings are short-horizon linear projections of the current trend.
+              </p>
+            </div>
+          </div>
+        </details>
 
-        <div class="rp-section">
-          <h3>Time in each state</h3>
-          <div class="rp-timeline" id="rpTimeline" aria-hidden="true"></div>
-          <div class="rp-timeline-legend" id="rpTimelineLegend"></div>
-        </div>
-
-        <div class="rp-section">
-          <h3>Episodes</h3>
-          <div class="rp-episodes" id="rpEpisodes"></div>
-        </div>
-
-        <div class="rp-section">
-          <h3>Early warnings</h3>
-          <div class="rp-stats" id="rpWarnings"></div>
-        </div>
-
-        <div class="rp-section">
-          <h3>Breathing exercises</h3>
-          <div class="rp-interventions" id="rpInterventions"></div>
-        </div>
-
-        <div class="rp-section">
-          <h3>How the estimates were produced</h3>
-          <div class="rp-stats" id="rpProvenance"></div>
-        </div>
-
-        <div class="rp-section">
-          <h3>Download</h3>
-          <div class="rp-downloads" id="rpDownloads"></div>
-        </div>
-
-        <div class="rp-section rp-method">
-          <h3>Method notes</h3>
-          <p>
-            States come from a rule engine and a trained model, fused, smoothed over a
-            seven-sample majority vote, and held by a state machine with hysteresis. Deltas are
-            measured against the personal baseline recorded at the start of this session.
-            Early warnings are short-horizon linear projections of the current trend.
-          </p>
-          <p class="rp-disclaimer" id="rpDisclaimer"></p>
-        </div>
+        <p class="rp-disclaimer" id="rpDisclaimer"></p>
       </section>
 
       <!-- ── P6: Past sessions drawer ──────────────────────────────────────── -->
@@ -400,9 +427,10 @@
           <div class="bm-recovering" id="breatheRecoverySection" style="display:none">
             <div class="rc-spinner-wrap">
               <div class="rc-spinner"></div>
-              <h3>Exercise complete · Buffering recovery</h3>
+              <h3 id="breatheRecoveryTitle">Exercise complete · Measuring recovery</h3>
               <p>Tracking your physiological recovery for 60 seconds. Sit comfortably and breathe naturally.</p>
               <p class="rc-countdown-label">Recovery window: <strong id="recoveryRemainCountdown">60s</strong> remaining</p>
+              <button type="button" class="btn btn-ghost rc-skip-btn" id="breatheSkipRecoveryBtn">See summary now</button>
             </div>
           </div>
         </div>
@@ -413,11 +441,261 @@
         <div class="guide-drawer-header">
           <div>
             <p class="eyebrow">Transparent decision guide</p>
-            <h2 id="interpretationTitle">Method &amp; evidence</h2>
+            <h2 id="interpretationTitle">How Saarthi works</h2>
           </div>
           <button class="guide-close" id="guideClose" type="button" aria-label="Close method and evidence panel">&times;</button>
         </div>
-        <div class="guide-drawer-body">
+
+        <!-- ── Two views share this drawer: the walkthrough (default, for a
+             live explanation) and the original research/evidence panel,
+             unchanged below. ──────────────────────────────────────────── -->
+        <div class="guide-tabs" role="tablist" aria-label="Explanation views">
+          <button class="guide-tab is-active" id="guideTabHow" type="button" role="tab"
+                  aria-selected="true" aria-controls="guidePanelHow">System walkthrough</button>
+          <button class="guide-tab" id="guideTabEvidence" type="button" role="tab"
+                  aria-selected="false" aria-controls="guidePanelEvidence" tabindex="-1">Research &amp; evidence</button>
+        </div>
+
+        <div class="guide-drawer-body" id="guidePanelHow" role="tabpanel" aria-labelledby="guideTabHow">
+          <p class="drawer-meta">What actually runs, in order — sensor to session report.</p>
+
+          <ol class="hiw-flow" aria-label="Pipeline overview">
+            <li><span class="hiw-flow-ico" aria-hidden="true">&#128225;</span><strong>Sense</strong><small>HR + GSR, ~1/s</small></li>
+            <li><span class="hiw-flow-ico" aria-hidden="true">&#9878;</span><strong>Calibrate</strong><small>your own baseline</small></li>
+            <li><span class="hiw-flow-ico" aria-hidden="true">&#8767;</span><strong>Clean</strong><small>smooth + 30 s window</small></li>
+            <li><span class="hiw-flow-ico" aria-hidden="true">&#128202;</span><strong>Decide</strong><small>rules + ML</small></li>
+            <li><span class="hiw-flow-ico" aria-hidden="true">&#128274;</span><strong>Stabilise</strong><small>vote + hold times</small></li>
+            <li><span class="hiw-flow-ico" aria-hidden="true">&#128203;</span><strong>Act &amp; log</strong><small>breathe, report</small></li>
+          </ol>
+
+          <ol class="hiw-steps">
+
+            <li class="hiw-step">
+              <span class="hiw-step-num">1</span>
+              <div class="hiw-step-body">
+                <div class="hiw-step-head"><h4>Sensor input</h4><span class="hiw-chip">Hardware</span></div>
+                <p class="hiw-what">A pulse sensor and two GSR electrodes on an Arduino send one text line per second over an HC-05 Bluetooth link, like <code>GSR:512,HR:74</code>.</p>
+                <dl class="hiw-meta">
+                  <div><dt>Why</dt><dd>Heart rate and skin conductance both rise with autonomic arousal, and two signals are harder to fool than one.</dd></div>
+                  <div><dt>Key decision</dt><dd>Any line that does not match the expected pattern (for example <em>&ldquo;Place finger&rdquo;</em>) is dropped rather than guessed at.</dd></div>
+                  <div><dt>Output</dt><dd><code class="hiw-out">hr</code> <code class="hiw-out">gsr</code> once per second</dd></div>
+                </dl>
+              </div>
+            </li>
+
+            <li class="hiw-step">
+              <span class="hiw-step-num">2</span>
+              <div class="hiw-step-body">
+                <div class="hiw-step-head"><h4>Personal calibration</h4><span class="hiw-chip">~30 s</span></div>
+                <p class="hiw-what">Before any state is shown, Saarthi watches a rolling ~30&nbsp;second window and locks it as <em>your</em> resting reference only once it is genuinely steady.</p>
+                <dl class="hiw-meta">
+                  <div><dt>Why</dt><dd>A resting heart rate of 58 and one of 88 are both normal. Every later number is a change from your own baseline, never a population cutoff.</dd></div>
+                  <div><dt>Key decision</dt><dd>Lock only if the window is calm: HR spread &le;&nbsp;<span class="num">15&nbsp;bpm</span> and GSR spread &le;&nbsp;<span class="num">50</span> units. If not, the window keeps sliding until a steady stretch appears.</dd></div>
+                  <div><dt>Output</dt><dd><code class="hiw-out">baseline_hr</code> <code class="hiw-out">baseline_gsr</code> &mdash; no state is displayed until this exists</dd></div>
+                </dl>
+              </div>
+            </li>
+
+            <li class="hiw-step">
+              <span class="hiw-step-num">3</span>
+              <div class="hiw-step-body">
+                <div class="hiw-step-head"><h4>Signal processing</h4><span class="hiw-chip">30 s window</span></div>
+                <p class="hiw-what">Each reading is range-checked, averaged over the last 3 samples, and pushed into a rolling 30&nbsp;second buffer.</p>
+                <dl class="hiw-meta">
+                  <div><dt>Why</dt><dd>Raw wearable data is spiky. A single bad sample should never move the state on screen.</dd></div>
+                  <div><dt>Key decision</dt><dd>Physiologically implausible values are discarded outright &mdash; HR outside <span class="num">40&ndash;210&nbsp;bpm</span>, GSR outside <span class="num">0&ndash;1200</span> units.</dd></div>
+                  <div><dt>Output</dt><dd><code class="hiw-out">smoothed hr/gsr</code> + a 30&nbsp;s window of history</dd></div>
+                </dl>
+              </div>
+            </li>
+
+            <li class="hiw-step">
+              <span class="hiw-step-num">4</span>
+              <div class="hiw-step-body">
+                <div class="hiw-step-head"><h4>Feature extraction</h4><span class="hiw-chip">10 numbers</span></div>
+                <p class="hiw-what">That window is reduced to the same ten numbers every time &mdash; the only thing either decision layer ever sees.</p>
+                <div class="hiw-featgrid" aria-label="The ten features">
+                  <span>mean HR</span><span>HR spread</span><span>HR trend</span>
+                  <span>mean GSR</span><span>GSR spread</span><span>GSR trend</span>
+                  <span class="is-key">&Delta;HR vs baseline</span><span class="is-key">&Delta;GSR vs baseline</span>
+                  <span class="is-key">stress index</span><span>confidence</span>
+                </div>
+                <dl class="hiw-meta">
+                  <div><dt>Why</dt><dd>One fixed vector means the rules, the model and the forecast all reason over identical evidence.</dd></div>
+                  <div><dt>Key decision</dt><dd>Stress index = <code>&Delta;HR + 0.05 &times; &Delta;GSR</code>, which puts both signals on one comparable scale. Confidence (0&ndash;1) scores how full and clean the window is.</dd></div>
+                  <div><dt>Output</dt><dd><code class="hiw-out">feature vector[10]</code></dd></div>
+                </dl>
+              </div>
+            </li>
+
+            <li class="hiw-step">
+              <span class="hiw-step-num">5</span>
+              <div class="hiw-step-body">
+                <div class="hiw-step-head"><h4>Rule-based detection</h4><span class="hiw-chip hiw-chip--tier">Tier 1 &middot; decides</span></div>
+                <p class="hiw-what">Transparent thresholds on the change from your baseline produce the first verdict.</p>
+                <div class="hiw-rules">
+                  <div class="hiw-rule hiw-rule--stress"><span class="state-tag state-tag--stress">Stress</span><code>&Delta;HR &gt; 6</code> <em>or</em> <code>&Delta;GSR &gt; 40</code></div>
+                  <div class="hiw-rule hiw-rule--anxiety"><span class="state-tag state-tag--anxiety">Anxiety</span><code>&Delta;HR &gt; 12</code> <em>and</em> <code>&Delta;GSR &gt; 80</code></div>
+                  <div class="hiw-rule hiw-rule--recovery"><span class="state-tag state-tag--recovery">Settling</span>elevated, but HR now clearly falling &rarr; step down one level</div>
+                </div>
+                <dl class="hiw-meta">
+                  <div><dt>Why</dt><dd>Every decision stays explainable: you can always point at the two numbers that caused it.</dd></div>
+                  <div><dt>Key decision</dt><dd>Anxiety requires <em>both</em> channels. If confidence drops below <span class="num">0.5</span>, the verdict is demoted one level rather than raising a shaky alarm.</dd></div>
+                  <div><dt>Output</dt><dd><code class="hiw-out">rule_state</code>: CALM / STRESS / ANXIETY</dd></div>
+                </dl>
+              </div>
+            </li>
+
+            <li class="hiw-step">
+              <span class="hiw-step-num">6</span>
+              <div class="hiw-step-body">
+                <div class="hiw-step-head"><h4>ML model</h4><span class="hiw-chip hiw-chip--tier">Tier 2 &middot; second opinion</span></div>
+                <p class="hiw-what">A Random Forest (100 trees, depth 5) reads the same ten numbers and returns one binary call with a probability.</p>
+                <dl class="hiw-meta">
+                  <div><dt>Why</dt><dd>It can pick up combinations of trend and variability that fixed thresholds miss.</dd></div>
+                  <div><dt>Key decision</dt><dd>It is deliberately <strong>binary &mdash; CALM or ANXIETY only</strong>. It has no notion of STRESS or RECOVERY, and it is fed raw, unscaled features exactly as it was trained.</dd></div>
+                  <div><dt>Output</dt><dd><code class="hiw-out">ml_state</code> + <code class="hiw-out">probability</code></dd></div>
+                </dl>
+              </div>
+            </li>
+
+            <li class="hiw-step">
+              <span class="hiw-step-num">7</span>
+              <div class="hiw-step-body">
+                <div class="hiw-step-head"><h4>Rule + ML fusion</h4><span class="hiw-chip hiw-chip--gate">Confirm-only gate</span></div>
+                <p class="hiw-what">The model confirms the rules. It does not outrank them.</p>
+                <div class="hiw-fusion">
+                  <div class="hiw-fusion-row"><span class="hiw-fusion-in">Rules: ANXIETY</span><span class="hiw-fusion-op">+</span><span class="hiw-fusion-in">ML: ANXIETY &ge; 0.75</span><span class="hiw-fusion-arrow" aria-hidden="true">&rarr;</span><span class="hiw-fusion-out is-both">ANXIETY <small>corroborated</small></span></div>
+                  <div class="hiw-fusion-row"><span class="hiw-fusion-in">Rules: STRESS</span><span class="hiw-fusion-op">+</span><span class="hiw-fusion-in">ML: ANXIETY</span><span class="hiw-fusion-arrow" aria-hidden="true">&rarr;</span><span class="hiw-fusion-out is-held">STRESS <small>not escalated</small></span></div>
+                </div>
+                <dl class="hiw-meta">
+                  <div><dt>Why</dt><dd>Measured on held-out data, the model reports ANXIETY for mild elevation with almost the same confidence as for full arousal &mdash; it separates <em>elevated</em> from <em>calm</em> well, but carries no severity information.</dd></div>
+                  <div><dt>Key decision</dt><dd>The gate is <code>probability &times; confidence &ge; 0.75</code>, and it can only agree with an existing ANXIETY verdict. It can never turn moderate stress into anxiety.</dd></div>
+                  <div><dt>Output</dt><dd><code class="hiw-out">fused_state</code> + its source: <code>rules</code> or <code>both</code></dd></div>
+                </dl>
+              </div>
+            </li>
+
+            <li class="hiw-step">
+              <span class="hiw-step-num">8</span>
+              <div class="hiw-step-body">
+                <div class="hiw-step-head"><h4>Smoothing &amp; state machine</h4><span class="hiw-chip">Anti-flicker</span></div>
+                <p class="hiw-what">Two guards sit between the verdict and the screen: a majority vote over the last 7 readings, then a state machine that enforces how long a change must persist.</p>
+                <div class="hiw-fsm" aria-label="State transitions and hold times">
+                  <span class="state-tag state-tag--calm">Calm</span><span class="hiw-fsm-arrow">&rarr;<small>3 s</small></span>
+                  <span class="state-tag state-tag--stress">Stress</span><span class="hiw-fsm-arrow">&rarr;<small>3 s</small></span>
+                  <span class="state-tag state-tag--anxiety">Anxiety</span><span class="hiw-fsm-arrow">&rarr;<small>5 s</small></span>
+                  <span class="state-tag state-tag--recovery">Recovery</span><span class="hiw-fsm-arrow">&rarr;<small>5 s</small></span>
+                  <span class="state-tag state-tag--calm">Calm</span>
+                </div>
+                <dl class="hiw-meta">
+                  <div><dt>Why</dt><dd>A display that flickers between states every second is unreadable and untrustworthy in front of an audience.</dd></div>
+                  <div><dt>Key decision</dt><dd>Anxiety can never jump straight back to calm &mdash; it must pass through recovery. Calm cannot jump straight to anxiety either, unless the stress index is extreme.</dd></div>
+                  <div><dt>Output</dt><dd><code class="hiw-out">final state</code> &mdash; the one big word on the dashboard</dd></div>
+                </dl>
+              </div>
+            </li>
+
+            <li class="hiw-step">
+              <span class="hiw-step-num">9</span>
+              <div class="hiw-step-body">
+                <div class="hiw-step-head"><h4>Predictive early warning</h4><span class="hiw-chip">&le; 30 s horizon</span></div>
+                <p class="hiw-what">While the stress index is rising, its slope is projected forward in a straight line to the next rule threshold, producing a countdown.</p>
+                <dl class="hiw-meta">
+                  <div><dt>Why</dt><dd>Reaching someone <em>before</em> a peak is more useful than announcing it afterwards.</dd></div>
+                  <div><dt>Key decision</dt><dd>Shown only after calibration, only while genuinely rising, only when confidence &ge;&nbsp;<span class="num">0.5</span>, and never further than <span class="num">30 s</span> ahead. Two falling readings clear it immediately.</dd></div>
+                  <div><dt>Output</dt><dd><code class="hiw-out">predicted state</code> + seconds &mdash; and the report later records how many forecasts actually arrived</dd></div>
+                </dl>
+                <p class="hiw-caveat">This is a straight-line extrapolation of the last few seconds, not a learned forecasting model.</p>
+              </div>
+            </li>
+
+            <li class="hiw-step">
+              <span class="hiw-step-num">10</span>
+              <div class="hiw-step-body">
+                <div class="hiw-step-head"><h4>Guided breathing &amp; recovery</h4><span class="hiw-chip">4&middot;4&middot;4&middot;4</span></div>
+                <p class="hiw-what">The dashboard offers a box-breathing exercise &mdash; inhale, hold, exhale, hold, four seconds each &mdash; and then measures what happened next.</p>
+                <dl class="hiw-meta">
+                  <div><dt>Why</dt><dd>Detection on its own is a verdict. The exercise turns it into something the wearer can act on immediately.</dd></div>
+                  <div><dt>Key decision</dt><dd>Start and stop are recorded by the backend, not the browser, so a refresh mid-exercise loses nothing. A <span class="num">60 s</span> recovery window afterwards captures the HR change.</dd></div>
+                  <div><dt>Output</dt><dd><code class="hiw-out">intervention record</code> + measured HR change, shown on the recovery card and in the report</dd></div>
+                </dl>
+              </div>
+            </li>
+
+            <li class="hiw-step">
+              <span class="hiw-step-num">11</span>
+              <div class="hiw-step-body">
+                <div class="hiw-step-head"><h4>Session lifecycle &amp; report</h4><span class="hiw-chip">Idle &rarr; Report</span></div>
+                <p class="hiw-what">A session moves Idle &rarr; Calibrating &rarr; Monitoring &rarr; Ended, checkpointing every 10 seconds, and ends with a report you can open or download.</p>
+                <dl class="hiw-meta">
+                  <div><dt>Why</dt><dd>A live number is a moment. A session is the evidence trail: what happened, when, and how much of it to trust.</dd></div>
+                  <div><dt>Key decision</dt><dd>Every report is graded for reliability first &mdash; <strong>Insufficient</strong> under 60 s of monitoring, <strong>Limited</strong> under 3 minutes, otherwise <strong>Good</strong>. A weak session has its metrics withheld and says why, rather than presenting thin numbers as solid ones.</dd></div>
+                  <div><dt>Output</dt><dd><code class="hiw-out">report</code> as on-screen summary, HTML or CSV &mdash; plus episodes, forecasts issued vs confirmed, and interventions</dd></div>
+                </dl>
+              </div>
+            </li>
+
+          </ol>
+
+          <section class="hiw-limits" aria-labelledby="hiwLimitsTitle">
+            <div class="hiw-limits-head">
+              <p class="eyebrow">Stated plainly</p>
+              <h3 id="hiwLimitsTitle">Limitations &amp; future work</h3>
+            </div>
+
+            <p class="hiw-limits-intro">These are real properties of the build in front of you, not hypotheticals.</p>
+
+            <ul class="hiw-limit-list">
+              <li>
+                <strong>Response latency of up to ~30 seconds.</strong>
+                Every decision reads a 30&nbsp;second trailing window, so a change has to occupy a meaningful part of that window before the state moves. Hold times add a few more seconds on purpose. Saarthi reports a sustained shift, not an instant one.
+              </li>
+              <li>
+                <strong>No accelerometer &mdash; movement is not separated from arousal.</strong>
+                There is no motion sensor in this build. Climbing stairs and a panic response can look similar on HR, and the system cannot tell them apart. Readings assume a seated, reasonably still wearer.
+              </li>
+              <li>
+                <strong>The ML model is binary.</strong>
+                It only distinguishes CALM from ANXIETY. Everything nuanced on screen &mdash; stress, recovery, the ordering between them &mdash; comes from the rule engine and the state machine, not the model.
+              </li>
+              <li>
+                <strong>The ML accuracy figure is optimistic, and we know why.</strong>
+                The reported <span class="num">95.7%</span> comes from a random split of rows drawn from a <em>30&nbsp;second sliding window</em>, so neighbouring rows overlap almost completely and near-duplicates land on both sides of the split. Re-tested on grouped, non-overlapping segments the same model scores roughly <span class="num">73%</span>, and about <span class="num">45%</span> on an unseen episode. Treat 95.7% as an upper bound, not a performance claim.
+              </li>
+              <li>
+                <strong>Calibration inherits your condition at that moment.</strong>
+                The baseline is whatever steady window it locks onto. Calibrate straight after running up the stairs and the reference sits too high, which makes every later change look smaller than it is. Start a session at rest.
+              </li>
+              <li>
+                <strong>GSR is in raw sensor units.</strong>
+                The 40 and 80 cutoffs are internally consistent but are not microsiemens, so they cannot be compared directly against published EDA figures.
+              </li>
+              <li>
+                <strong>One small dataset, no external validation.</strong>
+                The model was trained on this project&rsquo;s own bench data, and labels were generated by the same baseline logic the rules use. A high score largely shows the model reproduces that internal logic consistently.
+              </li>
+            </ul>
+
+            <div class="hiw-future">
+              <p class="hiw-future-label"><span class="hiw-future-badge">Proposed</span> Future work &mdash; <strong>none of the following is implemented</strong> in the system being demonstrated.</p>
+              <ul class="hiw-future-list">
+                <li><strong>Add an accelerometer</strong> so motion can be subtracted before a rise is read as arousal.</li>
+                <li><strong>Validate on held-out people, not held-out rows</strong> &mdash; a multi-subject dataset with subject-independent splits, which the current data cannot support.</li>
+                <li><strong>A multi-class model</strong> that can recognise STRESS and RECOVERY instead of leaving those to the rules alone.</li>
+                <li><strong>HRV features</strong> (inter-beat intervals) alongside raw heart rate, which the literature treats as a stronger arousal marker.</li>
+                <li><strong>Calibrated GSR in microsiemens</strong>, so thresholds become comparable with published research.</li>
+                <li><strong>A longer, research-grade baseline option</strong> for settings where a 5&ndash;10 minute rest is practical.</li>
+              </ul>
+            </div>
+
+            <aside class="interpretation-note">
+              <strong>Important:</strong> Saarthi is an educational wellness prototype. It does not diagnose, treat, or monitor any medical or mental-health condition, and its output is not a clinical measurement. If you are concerned about symptoms, consult a qualified healthcare professional.
+            </aside>
+          </section>
+        </div>
+
+        <div class="guide-drawer-body" id="guidePanelEvidence" role="tabpanel" aria-labelledby="guideTabEvidence" hidden>
         <p class="drawer-meta">Live HR / GSR · rule + ML fusion · HC-05</p>
         <div class="interpretation-heading">
           <div>

@@ -33,6 +33,10 @@ const GUIDE_TOGGLE  = document.getElementById("guideToggle");
 const GUIDE_DRAWER  = document.getElementById("interpretationDrawer");
 const GUIDE_BACKDROP = document.getElementById("guideBackdrop");
 const GUIDE_CLOSE   = document.getElementById("guideClose");
+const GUIDE_TAB_HOW      = document.getElementById("guideTabHow");
+const GUIDE_TAB_EVIDENCE = document.getElementById("guideTabEvidence");
+const GUIDE_PANEL_HOW      = document.getElementById("guidePanelHow");
+const GUIDE_PANEL_EVIDENCE = document.getElementById("guidePanelEvidence");
 
 // Feature 1 refs
 const PRED_BANNER       = document.getElementById("predictionBanner");
@@ -61,6 +65,8 @@ const BREATHE_CYCLE_LBL = document.getElementById("breatheCycleCount");
 const BREATHE_TIME_REMAIN = document.getElementById("breatheTimeRemain");
 const BREATHE_LIVE_HR   = document.getElementById("breatheLiveHr");
 const RECOVERY_REMAIN_CD= document.getElementById("recoveryRemainCountdown");
+const BM_RECOVERY_TITLE = document.getElementById("breatheRecoveryTitle");
+const BM_SKIP_RECOVERY_BTN = document.getElementById("breatheSkipRecoveryBtn");
 
 // Recovery Summary refs
 const RECOVERY_CARD     = document.getElementById("recoveryCard");
@@ -70,6 +76,9 @@ const RC_HR_DETAIL      = document.getElementById("rcHrDetail");
 const RC_STATE_CHANGE   = document.getElementById("rcStateChange");
 const RC_STATE_DETAIL   = document.getElementById("rcStateDetail");
 const RC_DURATION_VAL   = document.getElementById("rcDurationVal");
+const RC_INTRO          = document.getElementById("rcIntro");
+const RC_CHART_WRAP     = document.getElementById("rcChartWrap");
+const RC_DURATION_DESC  = document.getElementById("rcDurationDesc");
 
 
 // ── Feature: Session lifecycle ────────────────────────────────────
@@ -308,10 +317,13 @@ function updatePulseRate(hr) {
 }
 
 function clearReadings() {
+  // Values are gone, not held: the "held" marking belongs to the case where a
+  // stale reading is still on screen.
+  document.body.classList.remove("readings-stale");
   if (HR_EL)  HR_EL.textContent  = "—";
   if (GSR_EL) GSR_EL.textContent = "—";
-  if (STATE_EL) STATE_EL.textContent = "—";
-  if (STATE_CARD) STATE_CARD.classList.remove("state-calm", "state-stress", "state-anxiety", "state-recovery", "state-active");
+  if (STATE_EL) { STATE_EL.textContent = "—"; STATE_EL.classList.remove("state--compact"); }
+  if (STATE_CARD) STATE_CARD.classList.remove("state-calm", "state-stress", "state-anxiety", "state-recovery", "state-active", "state-calibrating", "state-idle");
   if (META_EL) META_EL.textContent = "";
   hrHistory = [];
   gsrHistory = [];
@@ -340,6 +352,9 @@ function setConn(conn, detail) {
 
 function setSensorWarning(warning) {
   if (!SW_BANNER || !SW_TEXT) return;
+  // Any payload means the stream is alive again, so the red "server lost"
+  // variant must not survive a reconnect (it is only set in initStream).
+  SW_BANNER.classList.remove("sw-danger");
   if (warning) {
     SW_TEXT.textContent = warning;
     SW_BANNER.classList.remove("sw-danger");
@@ -407,7 +422,11 @@ function setCalibrationStatus(d) {
       CAL_BANNER.style.display = "flex";
     }
     // The calibrated pill describes a live baseline; there is none between sessions.
-    if (CALIBRATED_PILL) CALIBRATED_PILL.style.display = "none";
+    if (CALIBRATED_PILL) {
+      CALIBRATED_PILL.style.display = "none";
+      CALIBRATED_PILL.setAttribute("aria-expanded", "false");
+    }
+    if (CALIBRATED_DETAIL) { CALIBRATED_DETAIL.hidden = true; CALIBRATED_DETAIL.textContent = ""; }
     if (CAL_RESTART_BTN) CAL_RESTART_BTN.hidden = true;
     // A breathing exercise is only meaningful against a running session.
     if (MANUAL_BREATHE_BTN) {
@@ -424,8 +443,10 @@ function setCalibrationStatus(d) {
   const isMock = conn === "mock";
   const cal = (d.session && d.session.calibration) || null;
   if (MANUAL_BREATHE_BTN) {
-    MANUAL_BREATHE_BTN.disabled = false;
-    MANUAL_BREATHE_BTN.title = "";
+    MANUAL_BREATHE_BTN.disabled = !calibrated;
+    MANUAL_BREATHE_BTN.title = calibrated
+      ? "Breathing exercise"
+      : "Available once the personal baseline is measured";
   }
 
   // Only offer a restart when the baseline is genuinely failing to settle.
@@ -482,6 +503,10 @@ function setCalibrationStatus(d) {
   // its visibility is no longer implied by the strip's — toggle it directly.
   if (CALIBRATED_PILL) {
     CALIBRATED_PILL.style.display = calibrated ? "flex" : "none";
+    if (!calibrated) {
+      CALIBRATED_PILL.setAttribute("aria-expanded", "false");
+      if (CALIBRATED_DETAIL) CALIBRATED_DETAIL.hidden = true;
+    }
   }
   if (CALIBRATED_DETAIL) {
     CALIBRATED_DETAIL.textContent = calibrated && d.baseline_hr != null && d.baseline_gsr != null
@@ -534,6 +559,17 @@ function updatePredictionBanner(d) {
   const pred = d.prediction;
   PRED_BANNER.style.display = "flex";
 
+  // With no usable reading there is no trend to project; "nothing is projected
+  // to change" would be a claim about a signal that is not arriving.
+  if (d.sensor_warning) {
+    PRED_BANNER.classList.add("is-idle");
+    if (PRED_ICON) PRED_ICON.textContent = "✋";
+    PRED_TITLE.textContent = "Early warning paused";
+    PRED_DETAIL.textContent = "Waiting for sensor contact before forecasting again.";
+    PRED_COUNTDOWN.style.display = "none";
+    return;
+  }
+
   if (pred && pred.active === true && pred.seconds_to_transition != null) {
     const sec = Math.max(1, Math.round(pred.seconds_to_transition));
     const target = pred.predicted_state || "STRESS";
@@ -548,8 +584,8 @@ function updatePredictionBanner(d) {
   } else {
     PRED_BANNER.classList.add("is-idle");
     if (PRED_ICON) PRED_ICON.textContent = "⏱";
-    PRED_TITLE.textContent = "Next reading in ~1s";
-    PRED_DETAIL.textContent = "Collecting and analysing…";
+    PRED_TITLE.textContent = "No early warning";
+    PRED_DETAIL.textContent = "Trend is steady — nothing is projected to change soon.";
     PRED_COUNTDOWN.style.display = "none";
   }
 }
@@ -625,7 +661,7 @@ if (BP_DISMISS_BTN) {
 // and cycle counter stay here. A stop with nothing running is a no-op server-side,
 // so the duplicate stop on a natural finish is safe.
 function logExerciseBackend(event) {
-  fetch("/session/intervention", {
+  return fetch("/session/intervention", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -634,7 +670,16 @@ function logExerciseBackend(event) {
       planned_duration_s: exerciseDurationSec,
       cycles_completed: exerciseCycleCount,
     }),
-  }).catch(e => console.debug("Intervention log error:", e));
+  })
+    .then(function (r) {
+      if (!r.ok && event === "start") {
+        // Nothing will be recorded, so do not let the exercise pretend it was.
+        stopExercise(false);
+        alert("This exercise cannot be recorded right now — a session must be "
+          + "running with its baseline already measured.");
+      }
+    })
+    .catch(function (e) { console.debug("Intervention log error:", e); });
 }
 
 function startExercise() {
@@ -659,6 +704,13 @@ function startExercise() {
   if (BM_CONFIG_SEC) BM_CONFIG_SEC.style.display = "none";
   if (BM_RUNNING_SEC) BM_RUNNING_SEC.style.display = "block";
   if (BM_RECOVERY_SEC) BM_RECOVERY_SEC.style.display = "none";
+
+  if (BREATHE_CYCLE_LBL) BREATHE_CYCLE_LBL.textContent = "0";
+  if (BREATHE_TIME_REMAIN) BREATHE_TIME_REMAIN.textContent = fmtClock(exerciseDurationSec);
+  if (BREATHE_LIVE_HR) {
+    BREATHE_LIVE_HR.textContent =
+      lastData && lastData.hr != null ? Math.round(lastData.hr) + " bpm" : "—";
+  }
 
   updateBoxPhaseUI();
   if (exerciseTimer) clearInterval(exerciseTimer);
@@ -714,16 +766,23 @@ function runExerciseTick() {
   updateBoxPhaseUI();
 
   if (remainSec <= 0) {
-    finishExerciseToRecovery();
+    finishExerciseToRecovery(false);
   }
 }
 
-function finishExerciseToRecovery() {
+function finishExerciseToRecovery(stoppedEarly) {
   if (exerciseTimer) clearInterval(exerciseTimer);
   exerciseRunning = false;
   recoveryActive = true;
   recoveryRemainSec = 60;
   logExerciseBackend("stop");
+
+  // Stopping early is not "complete" — the heading must not claim otherwise.
+  if (BM_RECOVERY_TITLE) {
+    BM_RECOVERY_TITLE.textContent = stoppedEarly
+      ? "Exercise stopped · Measuring recovery"
+      : "Exercise complete · Measuring recovery";
+  }
 
   if (BM_RUNNING_SEC) BM_RUNNING_SEC.style.display = "none";
   if (BM_RECOVERY_SEC) BM_RECOVERY_SEC.style.display = "block";
@@ -735,19 +794,25 @@ function finishExerciseToRecovery() {
 
 function runRecoveryTick() {
   recoveryRemainSec--;
-  if (RECOVERY_REMAIN_CD) RECOVERY_REMAIN_CD.textContent = recoveryRemainSec + "s";
-
-  if (recoveryRemainSec <= 0) {
-    clearInterval(recoveryTimer);
-    recoveryActive = false;
-    if (BM_MODAL && BM_BACKDROP) {
-      BM_MODAL.hidden = true;
-      BM_BACKDROP.hidden = true;
-      document.body.classList.remove("drawer-open");
-    }
-    showRecoverySummary();
-  }
+  if (RECOVERY_REMAIN_CD) RECOVERY_REMAIN_CD.textContent = Math.max(0, recoveryRemainSec) + "s";
+  if (recoveryRemainSec <= 0) endRecoveryWindow();
 }
+
+// The recovery window must never hold the dashboard hostage for a full minute:
+// the same path serves the timer and the "See summary now" button.
+function endRecoveryWindow() {
+  if (recoveryTimer) clearInterval(recoveryTimer);
+  recoveryTimer = null;
+  recoveryActive = false;
+  if (BM_MODAL && BM_BACKDROP) {
+    BM_MODAL.hidden = true;
+    BM_BACKDROP.hidden = true;
+    document.body.classList.remove("drawer-open");
+  }
+  showRecoverySummary();
+}
+
+if (BM_SKIP_RECOVERY_BTN) BM_SKIP_RECOVERY_BTN.addEventListener("click", endRecoveryWindow);
 
 function stopExercise(proceedToRecovery) {
   if (exerciseTimer) clearInterval(exerciseTimer);
@@ -757,19 +822,44 @@ function stopExercise(proceedToRecovery) {
   logExerciseBackend("stop");
 
   if (proceedToRecovery && exerciseBuffer.length > 5) {
-    finishExerciseToRecovery();
-  } else {
-    if (BM_MODAL && BM_BACKDROP) {
-      BM_MODAL.hidden = true;
-      BM_BACKDROP.hidden = true;
-      document.body.classList.remove("drawer-open");
-    }
+    finishExerciseToRecovery(true);
+    return;
   }
+  if (BM_MODAL && BM_BACKDROP) {
+    BM_MODAL.hidden = true;
+    BM_BACKDROP.hidden = true;
+    document.body.classList.remove("drawer-open");
+  }
+  // Fewer than ~6 readings is not enough to describe a recovery. Say so rather
+  // than closing on nothing, which reads as a button that did not work.
+  if (proceedToRecovery) showRecoveryUnavailable();
+}
+
+function showRecoveryUnavailable() {
+  if (!RECOVERY_CARD) return;
+  if (recoveryChart) { recoveryChart.destroy(); recoveryChart = null; }
+  if (RC_CHART_WRAP) RC_CHART_WRAP.hidden = true;
+  if (RC_INTRO) {
+    RC_INTRO.textContent =
+      "The exercise was stopped before enough readings arrived to measure a recovery.";
+  }
+  if (RC_HR_CHANGE) RC_HR_CHANGE.textContent = "not available";
+  if (RC_HR_DETAIL) RC_HR_DETAIL.textContent = "too few readings";
+  if (RC_STATE_CHANGE) RC_STATE_CHANGE.textContent = "not available";
+  if (RC_STATE_DETAIL) RC_STATE_DETAIL.textContent = "too few readings";
+  if (RC_DURATION_VAL) RC_DURATION_VAL.textContent = "not available";
+  recoveryCardSessionId = (lastData && lastData.session && lastData.session.id) || null;
+  RECOVERY_CARD.style.display = "block";
+  RECOVERY_CARD.scrollIntoView({ behavior: "smooth", block: "nearest" });
 }
 
 function showRecoverySummary() {
   if (!RECOVERY_CARD) return;
-  if (!exerciseBuffer || exerciseBuffer.length === 0) return;
+  if (!exerciseBuffer || exerciseBuffer.length === 0) { showRecoveryUnavailable(); return; }
+  if (RC_CHART_WRAP) RC_CHART_WRAP.hidden = false;
+  if (RC_INTRO) RC_INTRO.textContent = "Here's what your readings did during and after the exercise:";
+  if (RC_HR_DETAIL) RC_HR_DETAIL.textContent = "Start vs. recovery end";
+  if (RC_STATE_DETAIL) RC_STATE_DETAIL.textContent = "Initial state → End of recovery";
 
   const firstPt = exerciseBuffer[0];
   const lastPt = exerciseBuffer[exerciseBuffer.length - 1];
@@ -795,9 +885,15 @@ function showRecoverySummary() {
     const m = Math.floor(totalSec / 60);
     const s = totalSec % 60;
     RC_DURATION_VAL.textContent = (m > 0 ? m + "m " : "") + s + "s tracked";
+    if (RC_DURATION_DESC) {
+      const recoverySec = Math.max(0, 60 - Math.max(0, recoveryRemainSec));
+      RC_DURATION_DESC.textContent =
+        "Exercise duration + " + Math.round(recoverySec) + "s of recovery";
+    }
   }
 
   renderRecoveryChart();
+  recoveryCardSessionId = (lastData && lastData.session && lastData.session.id) || null;
   RECOVERY_CARD.style.display = "block";
   RECOVERY_CARD.scrollIntoView({ behavior: "smooth", block: "nearest" });
 }
@@ -835,20 +931,7 @@ function renderRecoveryChart() {
         x: { border: { display: false }, ticks: { color: CHART_TICK, font: CHART_TICK_FONT, maxTicksLimit: 6, maxRotation: 0 }, grid: { display: false } },
         y: { border: { display: false }, grid: { color: CHART_GRID, drawTicks: false }, ticks: { color: CHART_TICK, font: CHART_TICK_FONT, maxTicksLimit: 5, padding: 6 } },
       },
-      plugins: {
-        legend: {
-          align: "end",
-          labels: {
-            color: "rgba(244,244,247,0.75)",
-            font: { family: "'Sora', system-ui, sans-serif", size: 11, weight: "600" },
-            usePointStyle: true,
-            pointStyle: "circle",
-            boxWidth: 7,
-            boxHeight: 7,
-            padding: 14,
-          },
-        },
-      },
+      plugins: { legend: { display: false } },
     },
   });
 }
@@ -866,25 +949,79 @@ function setGuideOpen(open) {
   GUIDE_BACKDROP.hidden = !open;
   GUIDE_TOGGLE.setAttribute("aria-expanded", String(open));
   document.body.classList.toggle("drawer-open", open);
+  // Always reopen on the walkthrough: at an exhibition the next question
+  // starts from "how does this work", not from wherever it was left.
+  if (open) setGuideTab("how");
   if (open && GUIDE_CLOSE) GUIDE_CLOSE.focus();
   if (!open) GUIDE_TOGGLE.focus();
+}
+
+// The drawer holds two views: the system walkthrough (default) and the
+// original research/evidence panel. Switching only toggles visibility —
+// both panels are static markup, so there is nothing to load or render.
+function setGuideTab(tab) {
+  if (!GUIDE_TAB_HOW || !GUIDE_TAB_EVIDENCE || !GUIDE_PANEL_HOW || !GUIDE_PANEL_EVIDENCE) return;
+  const how = tab !== "evidence";
+  GUIDE_PANEL_HOW.hidden = !how;
+  GUIDE_PANEL_EVIDENCE.hidden = how;
+  for (const [btn, on] of [[GUIDE_TAB_HOW, how], [GUIDE_TAB_EVIDENCE, !how]]) {
+    btn.classList.toggle("is-active", on);
+    btn.setAttribute("aria-selected", String(on));
+    btn.tabIndex = on ? 0 : -1;
+  }
+  (how ? GUIDE_PANEL_HOW : GUIDE_PANEL_EVIDENCE).scrollTop = 0;
+}
+
+if (GUIDE_TAB_HOW && GUIDE_TAB_EVIDENCE) {
+  GUIDE_TAB_HOW.addEventListener("click", () => setGuideTab("how"));
+  GUIDE_TAB_EVIDENCE.addEventListener("click", () => setGuideTab("evidence"));
+  // Left/right arrows move between tabs, per the ARIA tablist pattern.
+  for (const btn of [GUIDE_TAB_HOW, GUIDE_TAB_EVIDENCE]) {
+    btn.addEventListener("keydown", (event) => {
+      if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+      event.preventDefault();
+      const next = btn === GUIDE_TAB_HOW ? GUIDE_TAB_EVIDENCE : GUIDE_TAB_HOW;
+      setGuideTab(next === GUIDE_TAB_HOW ? "how" : "evidence");
+      next.focus();
+    });
+  }
 }
 
 if (GUIDE_TOGGLE && GUIDE_DRAWER && GUIDE_BACKDROP) {
   GUIDE_TOGGLE.addEventListener("click", () => setGuideOpen(GUIDE_DRAWER.hidden));
   GUIDE_CLOSE?.addEventListener("click", () => setGuideOpen(false));
   GUIDE_BACKDROP.addEventListener("click", () => setGuideOpen(false));
-  document.addEventListener("keydown", (event) => {
-    if (event.key === "Escape" && !GUIDE_DRAWER.hidden) setGuideOpen(false);
-  });
 }
 
 let lastData = null;
+let chartSessionKey = null;
+
+// The live chart is a view of ONE session. Carrying the previous session's (or
+// the idle hardware-check's) trace into a new one misrepresents it, so the
+// series and its state markers are dropped whenever the session identity moves.
+function resetLiveChart() {
+  if (!chart) return;
+  chart.data.labels.length = 0;
+  chart.data.datasets[0].data.length = 0;
+  chart.data.datasets[1].data.length = 0;
+  chart.options.plugins.annotation.annotations = {};
+  stateMarkers = [];
+  lastChartState = null;
+  chart.update("none");
+}
 
 function render(d) {
   lastData = d;
   updateSessionControls(d);
   const recording = !!(d.session && d.session.recording === true);
+  // sensor_warning is set for every unusable line and cleared on every good
+  // sample, so it is the authoritative "this reading is not current" flag.
+  const stale = !!d.sensor_warning;
+  const sessionKey = (d.session && d.session.id) || "__idle__";
+  if (sessionKey !== chartSessionKey) {
+    if (chartSessionKey !== null) resetLiveChart();
+    chartSessionKey = sessionKey;
+  }
   const age = d.server_time ? ((Date.now()/1000 - d.server_time).toFixed(1) + "s old") : "?";
   setCalibrationStatus(d);
   updatePredictionBanner(d);
@@ -893,6 +1030,23 @@ function render(d) {
   const conn = (d.connection || "").toLowerCase();
   if (conn === "no_data" || conn === "disconnected") {
     clearReadings();
+    if (!recording && STATE_EL && STATE_CARD) {
+      var endedNow = !!(d.session && d.session.phase === "ENDED");
+      STATE_EL.textContent = endedNow ? "SESSION ENDED" : "IDLE";
+      STATE_EL.classList.add("state--compact");
+      STATE_CARD.classList.add("state-idle");
+      if (META_EL) META_EL.textContent = "Sensor not reporting — no session is running";
+    } else if (META_EL) {
+      META_EL.textContent = "Sensor not reporting — the state below is paused";
+    }
+    // The footer is set further down, past this early return, so it would
+    // otherwise keep the markup default ("Baseline calibrating...") forever.
+    if (BASELINE_INFO) {
+      BASELINE_INFO.textContent = recording
+        ? "Baseline paused — waiting for sensor data"
+        : "No baseline — start a session to measure one";
+    }
+    if (WINDOW_INFO) WINDOW_INFO.textContent = "Analysis window: no incoming samples";
     setConn(d.connection, d.connection_detail);
     setSensorWarning(d.sensor_warning || null);
     return;
@@ -903,16 +1057,19 @@ function render(d) {
   if (GSR_EL) GSR_EL.textContent = d.gsr != null ? Math.round(d.gsr) : "—";
   updatePulseRate(d.hr);
 
-  if (d.hr != null) {
+  // A held reading must not feed the sparkline or the trend badge: repeating
+  // the last value would read as a genuinely steady signal.
+  if (!stale && d.hr != null) {
     pushHistory(hrHistory, d.hr);
     updateMiniBar(HR_MINI_BAR, hrHistory);
     updateTrend(HR_TREND, hrHistory, 2.5);
   }
-  if (d.gsr != null) {
+  if (!stale && d.gsr != null) {
     pushHistory(gsrHistory, d.gsr);
     updateMiniBar(GSR_MINI_BAR, gsrHistory);
     updateTrend(GSR_TREND, gsrHistory, 15);
   }
+  document.body.classList.toggle("readings-stale", stale);
 
   const calibrating = recording && !d.calibrated && (conn === "connected" || conn === "mock");
   if (STATE_EL) {
@@ -934,31 +1091,49 @@ function render(d) {
       if (calibrating && cal && cal.method === "fixed") {
         STATE_CAL_CAPTION.textContent = "Using configured baseline";
       } else if (calibrating) {
+        // Capped below 100: the ring is only full when the baseline is locked.
         STATE_CAL_CAPTION.textContent =
-          "Establishing baseline · " + Math.round(calProgress * 100) + "%";
+          "Establishing baseline · " + Math.min(99, Math.round(calProgress * 100)) + "%";
       } else {
         STATE_CAL_CAPTION.textContent = "Establishing baseline";
       }
     }
   }
 
-  if (META_EL)
+  if (META_EL && stale && recording) {
+    META_EL.textContent = "Sensor contact lost — last reading held, nothing is being evaluated";
+  } else if (META_EL)
     META_EL.textContent = calibrating
       ? "Sit calmly — prediction starts after calibration"
-      : "Rules: " + (d.rule_state||"—") + " · ML: " + (d.ml_state||"—") + " · " + (d.fusion_source||"—");
+      : "Rules: " + (d.rule_state || "—") + " · ML (2nd opinion): " + (d.ml_state || "—")
+        + " · decided by " + (d.fusion_source === "both" ? "rules + ML"
+            : d.fusion_source === "ml" ? "ML" : "rules");
 
   // Outside an active session the readings are a sensor check only: no state,
   // no prediction strip, no breathing prompt.
   if (!recording) {
-    if (STATE_EL) { STATE_EL.textContent = "IDLE"; STATE_EL.classList.add("state--compact"); }
-    if (META_EL) META_EL.textContent = "No session running — press Start Session to begin";
+    var ended = !!(d.session && d.session.phase === "ENDED");
+    if (STATE_EL) {
+      STATE_EL.textContent = ended ? "SESSION ENDED" : "IDLE";
+      STATE_EL.classList.add("state--compact");
+    }
+    if (META_EL) {
+      META_EL.textContent = ended
+        ? "Session ended — open its report, or start a new one"
+        : "No session running — press Start Session to begin";
+    }
     if (BP_PROMPT) BP_PROMPT.style.display = "none";
     if (PRED_BANNER) PRED_BANNER.style.display = "none";
     // No state class: the per-state captions and microcopy describe a reading
     // that does not exist outside a session, so none of them should show.
+    // A dedicated idle skin, so the card still reads as a finished panel
+    // instead of a live state card with two empty columns.
     if (STATE_CARD) {
       STATE_CARD.classList.remove("state-calm","state-stress","state-anxiety","state-recovery","state-active","state-calibrating");
+      STATE_CARD.classList.add("state-idle");
     }
+  } else if (STATE_CARD) {
+    STATE_CARD.classList.remove("state-idle");
   }
 
   setConn(d.connection, d.connection_detail);
@@ -972,10 +1147,12 @@ function render(d) {
       : "Baseline calibration in progress — sit calmly";
   if (WINDOW_INFO)
     WINDOW_INFO.textContent = d.window_samples != null
-      ? "Window: " + d.window_samples + " samples · calibrated: " + d.calibrated
+      ? "Analysis window: " + d.window_samples + " samples"
+        + (recording ? (d.calibrated ? " · baseline locked" : " · baseline pending") : "")
       : "";
 
-  if (chart && d.hr != null && d.gsr != null) {
+  // Same for the chart: a flat line of repeated values is not a measurement.
+  if (chart && !stale && d.hr != null && d.gsr != null) {
     var t = new Date().toLocaleTimeString();
 
     if (d.state && d.state !== lastChartState) {
@@ -1006,7 +1183,7 @@ function render(d) {
     }
   }
 
-  if ((exerciseRunning || recoveryActive) && d.hr != null) {
+  if ((exerciseRunning || recoveryActive) && !stale && d.hr != null) {
     const relSec = Math.round((Date.now() - exerciseStartTime) / 1000);
     exerciseBuffer.push({
       relTime: relSec,
@@ -1023,6 +1200,7 @@ function render(d) {
 
 // ── Feature: Session lifecycle — controls, dialog, phase gating ──────────────
 let sessionPhase = "IDLE";          // mirror of d.session.phase, for click handling only
+let recoveryCardSessionId = null;   // session the visible recovery card belongs to
 let lastSessionId = null;
 
 function fmtClock(totalSec) {
@@ -1044,11 +1222,21 @@ function updateSessionControls(d) {
   }
   if (SESSION_CHIP) {
     SESSION_CHIP.hidden = (sess.phase === "IDLE");
-    if (SESSION_CHIP_LABEL) SESSION_CHIP_LABEL.textContent = sess.label || "Unlabelled session";
+    if (SESSION_CHIP_LABEL) {
+      SESSION_CHIP_LABEL.textContent = (sess.label || "Unlabelled session")
+        + (sess.phase === "ENDED" ? " · ended" : "");
+    }
     if (SESSION_CHIP_TIME)  SESSION_CHIP_TIME.textContent = fmtClock(sess.elapsed_s || 0);
     SESSION_CHIP.classList.toggle("is-recording", sess.recording === true);
   }
   if (SESSIONS_LIST_BTN) SESSIONS_LIST_BTN.hidden = false;
+  // A summary belongs to the session it was measured in; a different session
+  // taking over must not leave the previous one's card on screen.
+  if (sess.recording === true && RECOVERY_CARD
+      && recoveryCardSessionId && sess.id !== recoveryCardSessionId) {
+    RECOVERY_CARD.style.display = "none";
+    recoveryCardSessionId = null;
+  }
   document.body.classList.toggle("session-idle", sess.phase === "IDLE");
   document.body.classList.toggle("session-ended", sess.phase === "ENDED");
 
@@ -1068,8 +1256,10 @@ function openSessionStartModal() {
 }
 
 function closeSessionStartModal() {
+  var wasOpen = SESSION_START_MODAL && !SESSION_START_MODAL.hidden;
   if (SESSION_START_MODAL) SESSION_START_MODAL.hidden = true;
   if (SESSION_START_BACKDROP) SESSION_START_BACKDROP.hidden = true;
+  if (wasOpen && SESSION_PRIMARY_BTN) SESSION_PRIMARY_BTN.focus();
 }
 
 if (SESSION_PRIMARY_BTN) {
@@ -1082,7 +1272,10 @@ if (SESSION_PRIMARY_BTN) {
       fetch("/session/end", { method: "POST" })
         .then(function (r) { return r.json(); })
         .then(function (j) { if (j.session_id) onSessionEnded(j.session_id); })
-        .catch(function (e) { console.error("end session:", e); })
+        .catch(function (e) {
+          console.error("end session:", e);
+          alert("Could not reach the Saarthi server to end the session.");
+        })
         .then(function () { SESSION_PRIMARY_BTN.disabled = false; });
     }
   });
@@ -1102,7 +1295,10 @@ if (SESSION_START_CONFIRM) {
         if (res.ok) closeSessionStartModal();
         else alert("Could not start a session: " + (res.body.error || "unknown error"));
       })
-      .catch(function (e) { console.error("start session:", e); })
+      .catch(function (e) {
+        console.error("start session:", e);
+        alert("Could not reach the Saarthi server to start a session.");
+      })
       .then(function () { SESSION_START_CONFIRM.disabled = false; });
   });
 }
@@ -1121,6 +1317,15 @@ if (CAL_RESTART_BTN) {
   });
 }
 
+if (SESSION_LABEL_INPUT) {
+  SESSION_LABEL_INPUT.addEventListener("keydown", function (event) {
+    if (event.key === "Enter" && SESSION_START_CONFIRM && !SESSION_START_CONFIRM.disabled) {
+      event.preventDefault();
+      SESSION_START_CONFIRM.click();
+    }
+  });
+}
+
 if (SESSION_START_CLOSE) SESSION_START_CLOSE.addEventListener("click", closeSessionStartModal);
 if (SESSION_START_BACKDROP) SESSION_START_BACKDROP.addEventListener("click", closeSessionStartModal);
 
@@ -1133,7 +1338,13 @@ const RP_META        = document.getElementById("rpMeta");
 const RP_STATUS      = document.getElementById("rpStatusBanner");
 const RP_RELIABILITY = document.getElementById("rpReliability");
 const RP_NARRATIVE   = document.getElementById("rpNarrative");
-const RP_STATS       = document.getElementById("rpStats");
+const RP_KPIS        = document.getElementById("rpKpis");
+const RP_BASELINE    = document.getElementById("rpBaseline");
+const RP_QUALITY     = document.getElementById("rpQuality");
+const RP_PHYSIOLOGY  = document.getElementById("rpPhysiology");
+const RP_EPISODES_NOTE = document.getElementById("rpEpisodesNote");
+const RP_BASELINE_NOTE = document.getElementById("rpBaselineNote");
+const RP_QUALITY_NOTE  = document.getElementById("rpQualityNote");
 const RP_TIMELINE    = document.getElementById("rpTimeline");
 const RP_TL_LEGEND   = document.getElementById("rpTimelineLegend");
 const RP_EPISODES    = document.getElementById("rpEpisodes");
@@ -1150,6 +1361,42 @@ const SESSIONS_LIST    = document.getElementById("sessionsList");
 const SESSIONS_CLOSE   = document.getElementById("sessionsCloseBtn");
 
 let openReportId = null;
+
+var RP_PHRASES = {
+  box_4_4_4_4: "box breathing 4·4·4·4",
+  completed: "completed in full",
+  stopped_early: "stopped early",
+  unknown: "not recorded",
+  direct_calm: "settled straight back to calm",
+  via_recovery: "settled through recovery",
+  session_end: "still running when the session ended",
+  escalated: "escalated",
+  available: "available",
+  unavailable: "not available",
+  UNSTABLE_SIGNAL: "unstable signal",
+  RAPID_ONSET: "rapid onset",
+  SUSTAINED_ELEVATION: "sustained elevation",
+  OSCILLATING: "oscillating",
+};
+
+// Anything not in the table falls back to a readable form of the raw token,
+// so a new backend enum degrades to "rapid onset" rather than "RAPID_ONSET".
+function rpPhrase(value) {
+  if (value === null || value === undefined || value === "") return null;
+  var key = String(value);
+  if (RP_PHRASES[key]) return RP_PHRASES[key];
+  return key.replace(/[_-]+/g, " ").toLowerCase();
+}
+
+// ISO timestamps are for machines. Sessions are listed for people.
+function rpWhen(iso) {
+  if (!iso) return null;
+  var d = new Date(iso);
+  if (isNaN(d.getTime())) return String(iso);
+  return d.toLocaleString(undefined, {
+    day: "numeric", month: "short", hour: "2-digit", minute: "2-digit",
+  });
+}
 
 function rpText(value, fallback) {
   if (value === null || value === undefined || value === "") return fallback || "not available";
@@ -1175,28 +1422,6 @@ function rpReason(rep, key, fallback) {
   return un[key] || fallback || "not recorded for this session";
 }
 
-// One stat tile. `value` of null renders the reason instead of a number.
-function rpStat(label, value, reason, desc) {
-  var missing = (value === null || value === undefined);
-  var div = document.createElement("div");
-  div.className = "rc-stat" + (missing ? " rc-stat--missing" : "");
-  var l = document.createElement("span");
-  l.className = "rc-stat-label";
-  l.textContent = label;
-  var v = document.createElement("span");
-  v.className = "rc-stat-val";
-  v.textContent = missing ? "not available" : value;
-  div.appendChild(l);
-  div.appendChild(v);
-  if (missing || desc) {
-    var d = document.createElement("span");
-    d.className = "rc-stat-desc";
-    d.textContent = missing ? (reason || "not recorded for this session") : desc;
-    div.appendChild(d);
-  }
-  return div;
-}
-
 function rpClear(el) { while (el && el.firstChild) el.removeChild(el.firstChild); }
 
 function rpMissingSection(el, reason) {
@@ -1214,15 +1439,14 @@ function renderReport(rep) {
   var quality = rep.quality || {};
   var baseline = rep.baseline || {};
   var grade = quality.reliability || "UNKNOWN";
-  var provisional = grade === "LIMITED";
 
-  RP_PANEL.classList.toggle("is-provisional", provisional);
+  RP_PANEL.classList.toggle("is-provisional", grade === "LIMITED");
 
   if (RP_LABEL) RP_LABEL.textContent = identity.label || "Unlabelled session";
   if (RP_META) {
     RP_META.textContent = [
-      rpText(identity.started_at_iso, "start time not recorded"),
-      rpDuration(identity.total_duration_s) || "duration not recorded",
+      rpText(rpWhen(identity.started_at_iso), "start time not recorded"),
+      (rpDuration(identity.total_duration_s) || "duration not recorded") + " total",
       rpDuration(identity.monitored_duration_s)
         ? rpDuration(identity.monitored_duration_s) + " monitored" : "not monitored",
     ].join(" · ");
@@ -1241,99 +1465,196 @@ function renderReport(rep) {
     }
   }
 
-  // Reliability banner, before any metric it qualifies.
-  if (RP_RELIABILITY) {
-    rpClear(RP_RELIABILITY);
-    RP_RELIABILITY.className = "rp-reliability grade-" + grade.toLowerCase();
-    var title = document.createElement("strong");
-    title.textContent = "Signal reliability: " + grade;
-    RP_RELIABILITY.appendChild(title);
-    var reasons = quality.reliability_reasons || [];
-    if (reasons.length) {
-      var ul = document.createElement("ul");
-      reasons.forEach(function (r) {
-        var li = document.createElement("li");
-        li.textContent = r;
-        ul.appendChild(li);
-      });
-      RP_RELIABILITY.appendChild(ul);
-    } else {
-      var p = document.createElement("p");
-      p.textContent = grade === "GOOD"
-        ? "The session produced enough usable signal to describe it in full."
-        : "This session is still running, so the figures below are incomplete.";
-      RP_RELIABILITY.appendChild(p);
-    }
-  }
-
-  if (RP_NARRATIVE) {
-    rpClear(RP_NARRATIVE);
-    (rep.narrative || []).forEach(function (line) {
-      var p = document.createElement("p");
-      p.textContent = line;
-      RP_NARRATIVE.appendChild(p);
-    });
-  }
-
-  renderReportStats(rep, baseline, quality);
+  renderReportReliability(rep, quality, grade);
+  renderReportKpis(rep, identity, quality, baseline);
   renderReportTimeline(rep);
   renderReportEpisodes(rep);
-  renderReportWarnings(rep);
+  renderReportBaseline(rep, baseline);
+  renderReportQuality(rep, quality);
   renderReportInterventions(rep);
+  renderReportNarrative(rep);
+  renderReportPhysiology(rep);
+  renderReportWarnings(rep);
   renderReportProvenance(rep);
   renderReportDownloads(rep);
 
   if (RP_DISCLAIMER) RP_DISCLAIMER.textContent = rep.disclaimer || "";
-  markProvisionalSections(provisional);
 }
 
-function markProvisionalSections(provisional) {
-  var sections = document.querySelectorAll("#reportPanel .rp-section h3");
-  for (var i = 0; i < sections.length; i++) {
-    var existing = sections[i].querySelector(".rp-provisional-tag");
-    if (provisional && !existing) {
-      var tag = document.createElement("span");
-      tag.className = "rp-provisional-tag";
-      tag.textContent = "provisional";
-      sections[i].appendChild(tag);
-    } else if (!provisional && existing) {
-      existing.remove();
-    }
+// The reliability grade qualifies every number on the sheet, so it sits beside
+// the title rather than as one more block competing in the flow.
+function renderReportReliability(rep, quality, grade) {
+  if (!RP_RELIABILITY) return;
+  rpClear(RP_RELIABILITY);
+  RP_RELIABILITY.className = "rp-reliability grade-" + grade.toLowerCase();
+  var title = document.createElement("strong");
+  title.textContent = grade + " reliability";
+  RP_RELIABILITY.appendChild(title);
+  var reasons = (quality.reliability_reasons || []).slice(0, 2);
+  var note = document.createElement("span");
+  note.textContent = reasons.length
+    ? reasons.join(" · ")
+    : (grade === "GOOD" ? "enough usable signal to describe in full"
+                        : "figures below are incomplete");
+  RP_RELIABILITY.appendChild(note);
+}
+
+// One tile per question a reader actually arrives with: how long, how calm,
+// how many events, how far from normal, and did the forecast earn its place.
+function rpKpi(label, value, sub, tone) {
+  var div = document.createElement("div");
+  div.className = "rp-kpi" + (tone ? " rp-kpi--" + tone : "")
+    + (value === null ? " rp-kpi--missing" : "");
+  var l = document.createElement("span");
+  l.className = "rp-kpi-label";
+  l.textContent = label;
+  var v = document.createElement("span");
+  v.className = "rp-kpi-val";
+  v.textContent = value === null ? "n/a" : value;
+  div.appendChild(l);
+  div.appendChild(v);
+  var sEl = document.createElement("span");
+  sEl.className = "rp-kpi-sub";
+  sEl.textContent = sub || "";
+  div.appendChild(sEl);
+  return div;
+}
+
+function renderReportKpis(rep, identity, quality, baseline) {
+  if (!RP_KPIS) return;
+  rpClear(RP_KPIS);
+  var states = rep.states || null;
+  var phys = rep.physiology || null;
+  var w = rep.early_warnings || null;
+  var alerts = rep.alerts || {};
+
+  // Monitored time — the window every other figure is a share of.
+  RP_KPIS.appendChild(rpKpi("Monitored",
+    rpDuration(identity.monitored_duration_s),
+    rpDuration(identity.total_duration_s)
+      ? rpDuration(identity.total_duration_s) + " including calibration"
+      : "calibration never finished"));
+
+  // Calm share: the single number that says how the session went.
+  var calmPct = states && states.pct ? states.pct.CALM : null;
+  var hasCalm = !(calmPct === null || calmPct === undefined);
+  var elevatedPct = null;
+  if (states && states.pct) {
+    elevatedPct = Math.round(((states.pct.STRESS || 0) + (states.pct.ANXIETY || 0)) * 10) / 10;
   }
+  RP_KPIS.appendChild(rpKpi("Time calm",
+    hasCalm ? Math.round(calmPct) + "%" : null,
+    elevatedPct === null ? "no state time recorded" : elevatedPct + "% elevated",
+    hasCalm ? (calmPct >= 70 ? "good" : calmPct >= 40 ? "warn" : "bad") : null));
+
+  // Episodes, split the way the rule engine splits them.
+  // `states` is null exactly when the session had too little evidence to be
+  // characterised; the backend still reports episode_count 0 there, and showing
+  // that as a clean "0 episodes" would claim a result we cannot stand behind.
+  var epCount = rep.episode_count;
+  var hasEp = rep.states && !(epCount === null || epCount === undefined);
+  var anx = rep.anxiety_episode_count || 0;
+  RP_KPIS.appendChild(rpKpi("Episodes",
+    hasEp ? String(epCount) : null,
+    hasEp ? ((rep.stress_episode_count || 0) + " stress · " + anx + " anxiety")
+          : "not enough signal to characterise",
+    !hasEp ? null : (anx > 0 ? "bad" : (epCount ? "warn" : "good"))));
+
+  // Peak arousal expressed as a change from this person's own baseline.
+  var hasPeak = phys && phys.peak_delta_hr !== null && phys.peak_delta_hr !== undefined;
+  RP_KPIS.appendChild(rpKpi("Peak vs baseline",
+    hasPeak ? (phys.peak_delta_hr > 0 ? "+" : "") + rpNum(phys.peak_delta_hr, 1) + " bpm" : null,
+    hasPeak
+      ? ((phys.peak_delta_gsr > 0 ? "+" : "") + rpNum(phys.peak_delta_gsr, 0) + " GSR · peak HR "
+         + rpText(rpNum(phys.hr ? phys.hr.max : null, 0)) + " bpm")
+      : "no physiology recorded"));
+
+  // The early-warning layer is the product claim; report it as a hit rate.
+  var issued = w ? (w.issued || 0) : null;
+  RP_KPIS.appendChild(rpKpi("Warnings confirmed",
+    issued === null ? null : (w.confirmed || 0) + " / " + issued,
+    issued
+      ? ((rpNum(w.median_lead_time_s, 1, " s") || "0 s") + " median lead · peak alert "
+         + rpText(alerts.peak_alert, "none"))
+      : "no forecasts were raised"));
 }
 
-function renderReportStats(rep, baseline, quality) {
-  if (!RP_STATS) return;
-  rpClear(RP_STATS);
-  var phys = rep.physiology;
-  var hr = (phys && phys.hr) || {};
-  var gsr = (phys && phys.gsr) || {};
-  var physReason = rpReason(rep, "physiology", "no physiology was recorded");
+// Compact label/value pair used by every side block and the audit trail.
+function rpFact(dl, label, value, reason) {
+  var missing = (value === null || value === undefined || value === "");
+  var dt = document.createElement("dt");
+  dt.textContent = label;
+  var dd = document.createElement("dd");
+  dd.textContent = missing ? (reason || "not recorded") : value;
+  if (missing) dd.className = "is-missing";
+  dl.appendChild(dt);
+  dl.appendChild(dd);
+}
 
-  RP_STATS.appendChild(rpStat("Baseline HR",
-    rpNum(baseline.hr, 0, " bpm"), "calibration never completed",
-    "measured over " + (rpDuration(baseline.calibration_duration_s) || "an unknown time")));
-  RP_STATS.appendChild(rpStat("Baseline GSR",
-    rpNum(baseline.gsr, 0), "calibration never completed", baseline.method || ""));
-  RP_STATS.appendChild(rpStat("HR mean / max",
-    phys && hr.mean !== null && hr.mean !== undefined
-      ? rpNum(hr.mean, 0) + " / " + rpNum(hr.max, 0) + " bpm" : null, physReason));
-  RP_STATS.appendChild(rpStat("GSR mean / max",
-    phys && gsr.mean !== null && gsr.mean !== undefined
-      ? rpNum(gsr.mean, 0) + " / " + rpNum(gsr.max, 0) : null, physReason));
-  RP_STATS.appendChild(rpStat("Peak change from baseline",
-    phys ? ("HR " + rpText(rpNum(phys.peak_delta_hr, 1)) + " · GSR "
-            + rpText(rpNum(phys.peak_delta_gsr, 1))) : null, physReason));
-  RP_STATS.appendChild(rpStat("Sample coverage",
-    rpNum(quality.coverage_pct, 1, "%"), "no samples were evaluated",
-    (quality.samples_evaluated || 0) + " of " + (quality.expected_samples || 0) + " expected"));
-  RP_STATS.appendChild(rpStat("Mean confidence",
-    rpNum(quality.mean_confidence, 2), "no samples were evaluated",
-    "lowest " + rpText(rpNum(quality.min_confidence, 2))));
-  RP_STATS.appendChild(rpStat("Connection gaps",
-    quality.disconnect_count === null || quality.disconnect_count === undefined
-      ? null : String(quality.disconnect_count), "not recorded",
-    rpDuration(quality.total_disconnected_s) || "none"));
+function renderReportBaseline(rep, baseline) {
+  if (!RP_BASELINE) return;
+  rpClear(RP_BASELINE);
+  var never = "calibration never completed";
+  rpFact(RP_BASELINE, "Resting HR", rpNum(baseline.hr, 0, " bpm"), never);
+  rpFact(RP_BASELINE, "Resting GSR", rpNum(baseline.gsr, 0, " units"), never);
+  rpFact(RP_BASELINE, "Measured over", rpDuration(baseline.calibration_duration_s), never);
+  if (RP_BASELINE_NOTE) RP_BASELINE_NOTE.textContent = rpPhrase(baseline.method) || "";
+}
+
+function renderReportQuality(rep, quality) {
+  if (!RP_QUALITY) return;
+  rpClear(RP_QUALITY);
+  rpFact(RP_QUALITY, "Sample coverage",
+    rpNum(quality.coverage_pct, 1, "%"), "no samples were evaluated");
+  if (RP_QUALITY_NOTE) {
+    RP_QUALITY_NOTE.textContent =
+      (quality.samples_evaluated === null || quality.samples_evaluated === undefined)
+        ? "" : quality.samples_evaluated + " / " + (quality.expected_samples || 0) + " samples";
+  }
+  rpFact(RP_QUALITY, "Mean confidence",
+    rpNum(quality.mean_confidence, 2) === null ? null
+      : rpNum(quality.mean_confidence, 2) + "  (low " + rpText(rpNum(quality.min_confidence, 2)) + ")",
+    "no samples were evaluated");
+  rpFact(RP_QUALITY, "Connection gaps",
+    (quality.disconnect_count === null || quality.disconnect_count === undefined)
+      ? null
+      : quality.disconnect_count + (quality.total_disconnected_s
+          ? " · " + rpDuration(quality.total_disconnected_s) : ""),
+    "not recorded");
+}
+
+function renderReportNarrative(rep) {
+  if (!RP_NARRATIVE) return;
+  rpClear(RP_NARRATIVE);
+  (rep.narrative || []).forEach(function (line) {
+    var p = document.createElement("p");
+    p.textContent = line;
+    RP_NARRATIVE.appendChild(p);
+  });
+}
+
+function renderReportPhysiology(rep) {
+  if (!RP_PHYSIOLOGY) return;
+  rpClear(RP_PHYSIOLOGY);
+  var phys = rep.physiology;
+  if (!phys) {
+    rpFact(RP_PHYSIOLOGY, "Physiology", null,
+      rpReason(rep, "physiology", "no physiology was recorded"));
+    return;
+  }
+  var hr = phys.hr || {};
+  var gsr = phys.gsr || {};
+  rpFact(RP_PHYSIOLOGY, "HR mean / min / max",
+    (hr.mean === null || hr.mean === undefined) ? null
+      : rpNum(hr.mean, 0) + " / " + rpNum(hr.min, 0) + " / " + rpNum(hr.max, 0) + " bpm");
+  rpFact(RP_PHYSIOLOGY, "GSR mean / min / max",
+    (gsr.mean === null || gsr.mean === undefined) ? null
+      : rpNum(gsr.mean, 0) + " / " + rpNum(gsr.min, 0) + " / " + rpNum(gsr.max, 0));
+  rpFact(RP_PHYSIOLOGY, "Stress index peak / mean",
+    (phys.peak_stress_index === null || phys.peak_stress_index === undefined) ? null
+      : rpNum(phys.peak_stress_index, 1) + " / " + rpNum(phys.mean_stress_index, 1));
+  rpFact(RP_PHYSIOLOGY, "Furthest from baseline at",
+    rpDuration(phys.peak_deviation_at_rel), "not recorded");
 }
 
 function renderReportTimeline(rep) {
@@ -1364,7 +1685,8 @@ function renderReportTimeline(rep) {
     var dot = document.createElement("span");
     dot.className = "rp-tl-dot state-" + name.toLowerCase();
     var text = document.createElement("span");
-    text.textContent = name + " — " + (rpDuration(states.seconds[name]) || "0 s") + " (" + pct + "%)";
+    text.textContent = name.charAt(0) + name.slice(1).toLowerCase() + " "
+      + pct + "% · " + (rpDuration(states.seconds[name]) || "0 s");
     item.appendChild(dot);
     item.appendChild(text);
     RP_TL_LEGEND.appendChild(item);
@@ -1375,9 +1697,12 @@ function renderReportTimeline(rep) {
   RP_TL_LEGEND.appendChild(changes);
 }
 
+// Episodes are the evidence trail, so they stay in full — but as scannable
+// table rows rather than a stack of paragraph cards.
 function renderReportEpisodes(rep) {
   if (!RP_EPISODES) return;
   rpClear(RP_EPISODES);
+  if (RP_EPISODES_NOTE) RP_EPISODES_NOTE.textContent = "";
   // `states` is null exactly when the session had too little evidence to be
   // characterised. Episodes come back as [] there, which must NOT be shown as
   // "none detected" — that would read as a clean result we cannot claim.
@@ -1388,38 +1713,60 @@ function renderReportEpisodes(rep) {
   if (!rep.episodes.length) {
     var p = document.createElement("p");
     p.className = "rp-empty";
-    p.textContent = "No stress or anxiety episodes were detected during the monitored window.";
+    p.textContent = "No stress or anxiety episodes were detected in the monitored window.";
     RP_EPISODES.appendChild(p);
     return;
   }
-  rep.episodes.forEach(function (ep) {
-    var card = document.createElement("div");
-    card.className = "rp-episode state-" + String(ep.kind || "").toLowerCase();
-    var head = document.createElement("div");
-    head.className = "rp-episode-head";
-    head.textContent = "#" + ep.index + " " + ep.kind + " · " + (rpDuration(ep.duration_s) || "?");
-    var body = document.createElement("div");
-    body.className = "rp-episode-body";
-    var bits = [
-      "began " + (rpDuration(ep.start_rel) || "?") + " into monitoring",
-      "peak HR " + rpText(rpNum(ep.peak_hr, 0, " bpm")),
-      "peak alert " + rpText(ep.max_alert_reached, "none"),
-      ep.preceded_by_early_warning
-        ? ("warned " + rpText(rpNum(ep.lead_time_s, 1, " s")) + " ahead")
-        : "no prior warning",
-      "ended: " + rpText(ep.resolved_via, "escalated"),
-    ];
-    if (ep.patterns_observed && ep.patterns_observed.length) {
-      bits.push("patterns: " + ep.patterns_observed.join(", "));
-    }
-    if (ep.intervention_index) {
-      bits.push("breathing exercise " + ep.intervention_index + " overlapped");
-    }
-    body.textContent = bits.join(" · ");
-    card.appendChild(head);
-    card.appendChild(body);
-    RP_EPISODES.appendChild(card);
+  if (RP_EPISODES_NOTE) RP_EPISODES_NOTE.textContent = rep.episodes.length + " detected";
+
+  var table = document.createElement("table");
+  table.className = "rp-episode-table";
+  var thead = document.createElement("thead");
+  var hrow = document.createElement("tr");
+  ["#", "Type", "Began", "Length", "Peak HR", "Forewarned", "Ended"].forEach(function (h) {
+    var th = document.createElement("th");
+    th.scope = "col";
+    th.textContent = h;
+    hrow.appendChild(th);
   });
+  thead.appendChild(hrow);
+  table.appendChild(thead);
+
+  var tbody = document.createElement("tbody");
+  rep.episodes.forEach(function (ep) {
+    var tr = document.createElement("tr");
+    var kindCell = document.createElement("span");
+    kindCell.className = "rp-ep-tag state-" + String(ep.kind || "").toLowerCase();
+    kindCell.textContent = ep.kind || "—";
+
+    var cells = [
+      String(ep.index),
+      kindCell,
+      rpDuration(ep.start_rel) || "?",
+      rpDuration(ep.duration_s) || "?",
+      rpText(rpNum(ep.peak_hr, 0)),
+      ep.preceded_by_early_warning ? (rpNum(ep.lead_time_s, 1, " s") || "yes") : "no",
+      rpText(rpPhrase(ep.resolved_via), "escalated"),
+    ];
+    cells.forEach(function (c, i) {
+      var td = document.createElement("td");
+      if (typeof c === "string") td.textContent = c;
+      else td.appendChild(c);
+      if (i === 5 && !ep.preceded_by_early_warning) td.className = "is-dim";
+      tr.appendChild(td);
+    });
+    // Extra context that does not deserve a column of its own.
+    var extras = [];
+    if (ep.max_alert_reached) extras.push("alert " + ep.max_alert_reached);
+    if (ep.patterns_observed && ep.patterns_observed.length) {
+      extras.push(ep.patterns_observed.map(rpPhrase).join(", "));
+    }
+    if (ep.intervention_index) extras.push("exercise " + ep.intervention_index + " overlapped");
+    if (extras.length) tr.title = extras.join(" · ");
+    tbody.appendChild(tr);
+  });
+  table.appendChild(tbody);
+  RP_EPISODES.appendChild(table);
 }
 
 function renderReportWarnings(rep) {
@@ -1427,18 +1774,15 @@ function renderReportWarnings(rep) {
   rpClear(RP_WARNINGS);
   var w = rep.early_warnings;
   if (!w) {
-    rpMissingSection(RP_WARNINGS, rpReason(rep, "early_warnings", "no forecasts were recorded"));
+    rpFact(RP_WARNINGS, "Early warnings", null,
+      rpReason(rep, "early_warnings", "no forecasts were recorded"));
     return;
   }
-  RP_WARNINGS.appendChild(rpStat("Issued", String(w.issued || 0), null,
-    "short-horizon forecasts raised"));
-  RP_WARNINGS.appendChild(rpStat("Confirmed", String(w.confirmed || 0), null,
-    "followed by the predicted state"));
-  RP_WARNINGS.appendChild(rpStat("Not followed", String(w.unconfirmed || 0), null,
-    "the predicted state did not arrive in the window"));
-  RP_WARNINGS.appendChild(rpStat("Median lead time",
-    rpNum(w.median_lead_time_s, 1, " s"),
-    "no warning was followed by the predicted state"));
+  rpFact(RP_WARNINGS, "Issued", String(w.issued || 0));
+  rpFact(RP_WARNINGS, "Followed by the predicted state", String(w.confirmed || 0));
+  rpFact(RP_WARNINGS, "Not followed", String(w.unconfirmed || 0));
+  rpFact(RP_WARNINGS, "Median lead time", rpNum(w.median_lead_time_s, 1, " s"),
+    "no warning was followed by the predicted state");
 }
 
 function renderReportInterventions(rep) {
@@ -1454,33 +1798,42 @@ function renderReportInterventions(rep) {
   }
   list.forEach(function (iv) {
     var card = document.createElement("div");
-    card.className = "rp-episode";
+    card.className = "rp-interv";
+
     var head = document.createElement("div");
-    head.className = "rp-episode-head";
-    head.textContent = "Exercise #" + iv.index + " · " + rpText(iv.technique)
-      + " · " + (rpDuration(iv.actual_duration_s) || "?");
-    var grid = document.createElement("div");
-    grid.className = "rp-stats";
-    grid.appendChild(rpStat("Completion", iv.completion,
-      rpReason(rep, "interventions[" + iv.index + "].completion",
-               "no planned duration was recorded")));
-    grid.appendChild(rpStat("HR change across exercise",
-      rpNum(iv.hr_change_bpm, 1, " bpm"), "HR was not recorded",
-      "from " + rpText(rpNum(iv.hr_at_start, 0)) + " to " + rpText(rpNum(iv.hr_at_end, 0))));
-    grid.appendChild(rpStat("HR 60 s after",
-      rpNum(iv.hr_at_plus_60s, 1, " bpm"),
-      rpReason(rep, "interventions[" + iv.index + "].hr_at_plus_60s",
-               "the observation window did not complete")));
-    grid.appendChild(rpStat("State at start / end",
-      iv.state_at_start ? (iv.state_at_start + " → " + rpText(iv.state_at_end)) : null,
-      "state was not recorded for this exercise"));
-    grid.appendChild(rpStat("Returned to CALM in window",
-      iv.returned_to_calm_within_window
-        ? ("yes, after " + rpText(rpNum(iv.time_to_calm_s, 1, " s"))) : "no", null,
-      "observation only"));
-    grid.appendChild(rpStat("Recovery data", iv.recovery_data, "the window never opened"));
+    head.className = "rp-interv-head";
+    head.textContent = "#" + iv.index + " " + rpText(rpPhrase(iv.technique))
+      + " · " + (rpDuration(iv.actual_duration_s) || "?")
+      + " · " + rpText(rpPhrase(iv.completion), "completion not recorded");
     card.appendChild(head);
-    card.appendChild(grid);
+
+    // The outcome is the whole point of the exercise, so it leads.
+    var change = iv.hr_change_bpm;
+    var hasChange = !(change === null || change === undefined);
+    var hero = document.createElement("div");
+    hero.className = "rp-interv-hero" + (hasChange ? (change < 0 ? " is-good" : " is-flat") : "");
+    hero.textContent = hasChange
+      ? ((change > 0 ? "+" : "") + rpNum(change, 1) + " bpm across the exercise")
+      : "HR change not recorded";
+    card.appendChild(hero);
+
+    var dl = document.createElement("dl");
+    dl.className = "rp-facts";
+    rpFact(dl, "HR start → end",
+      (iv.hr_at_start === null || iv.hr_at_start === undefined) ? null
+        : rpNum(iv.hr_at_start, 0) + " → " + rpText(rpNum(iv.hr_at_end, 0)) + " bpm",
+      "HR was not recorded");
+    rpFact(dl, "HR 60 s after", rpNum(iv.hr_at_plus_60s, 1, " bpm"),
+      rpReason(rep, "interventions[" + iv.index + "].hr_at_plus_60s",
+               "the observation window did not complete"));
+    rpFact(dl, "State start → end",
+      iv.state_at_start ? (iv.state_at_start + " → " + rpText(iv.state_at_end)) : null,
+      "state was not recorded");
+    rpFact(dl, "Back to calm",
+      iv.returned_to_calm_within_window
+        ? ("yes, after " + rpText(rpNum(iv.time_to_calm_s, 1, " s")))
+        : "not within the window");
+    card.appendChild(dl);
     RP_INTERV.appendChild(card);
   });
 }
@@ -1490,20 +1843,27 @@ function renderReportProvenance(rep) {
   rpClear(RP_PROVENANCE);
   var prov = rep.provenance;
   if (!prov) {
-    rpMissingSection(RP_PROVENANCE, rpReason(rep, "provenance", "no decisions were recorded"));
+    rpFact(RP_PROVENANCE, "Decision sources", null,
+      rpReason(rep, "provenance", "no decisions were recorded"));
     return;
   }
   var pct = prov.fusion_source_pct || {};
-  RP_PROVENANCE.appendChild(rpStat("Rules only", rpNum(pct.rules, 1, "%"), "no decisions were recorded"));
-  RP_PROVENANCE.appendChild(rpStat("ML only", rpNum(pct.ml, 1, "%"), "the ML model did not contribute"));
-  RP_PROVENANCE.appendChild(rpStat("Rules and ML agreed", rpNum(pct.both, 1, "%"),
-    "the ML model did not contribute"));
-  RP_PROVENANCE.appendChild(rpStat("Rule engine matched the final state",
-    rpNum(prov.rule_final_agreement_pct, 1, "%"), "no decisions were recorded"));
-  RP_PROVENANCE.appendChild(rpStat("Unstable label flips suppressed",
-    String(prov.smoothing_suppressed_flips || 0), null, "by smoothing and the state machine"));
-  RP_PROVENANCE.appendChild(rpStat("ML-led ANXIETY decisions",
-    String(prov.ml_anxiety_adoptions || 0), null, "model overrode the rules"));
+  // A source absent from a populated breakdown means it contributed 0%, which
+  // is a measurement — not a missing value.
+  var measured = Object.keys(pct).length > 0;
+  function share(key) {
+    if (pct[key] !== null && pct[key] !== undefined) return rpNum(pct[key], 1, "%");
+    return measured ? "0.0%" : null;
+  }
+  rpFact(RP_PROVENANCE, "Decided by rules alone", share("rules"), "no decisions were recorded");
+  rpFact(RP_PROVENANCE, "Decided by ML alone", share("ml"), "no decisions were recorded");
+  rpFact(RP_PROVENANCE, "Rules and ML agreed", share("both"), "no decisions were recorded");
+  rpFact(RP_PROVENANCE, "Rule engine matched the final state",
+    rpNum(prov.rule_final_agreement_pct, 1, "%"), "no decisions were recorded");
+  rpFact(RP_PROVENANCE, "Unstable label flips suppressed",
+    String(prov.smoothing_suppressed_flips || 0));
+  rpFact(RP_PROVENANCE, "ML-led ANXIETY decisions",
+    String(prov.ml_anxiety_adoptions || 0));
 }
 
 function renderReportDownloads(rep) {
@@ -1525,6 +1885,8 @@ function renderReportDownloads(rep) {
 
 function openReportPanel() {
   if (!RP_PANEL) return;
+  if (RP_AUDIT) RP_AUDIT.open = false;
+  RP_PANEL.classList.remove("audit-open");
   RP_PANEL.hidden = false;
   document.body.classList.add("report-open");
   RP_PANEL.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -1543,7 +1905,27 @@ function loadReport(sessionId) {
       return r.json();
     })
     .then(function (rep) { renderReport(rep); openReportPanel(); })
-    .catch(function (e) { console.error("report fetch:", e); });
+    .catch(function (e) {
+      console.error("report fetch:", e);
+      showReportError("This session's report could not be loaded. "
+        + "It may not have been written to disk yet — try again from Sessions in a moment.");
+    });
+}
+
+// A minimal, honest failure state: the panel opens and says what went wrong
+// instead of leaving the click with no visible result.
+function showReportError(message) {
+  if (!RP_PANEL) return;
+  if (RP_LABEL) RP_LABEL.textContent = "Report unavailable";
+  if (RP_META) RP_META.textContent = "";
+  if (RP_STATUS) { RP_STATUS.textContent = message; RP_STATUS.hidden = false; }
+  [RP_RELIABILITY, RP_NARRATIVE, RP_KPIS, RP_TL_LEGEND, RP_EPISODES, RP_BASELINE,
+   RP_QUALITY, RP_PHYSIOLOGY, RP_WARNINGS, RP_INTERV, RP_PROVENANCE,
+   RP_DOWNLOADS].forEach(rpClear);
+  if (RP_TIMELINE) { rpClear(RP_TIMELINE); RP_TIMELINE.style.display = "none"; }
+  if (RP_RELIABILITY) RP_RELIABILITY.className = "rp-reliability";
+  if (RP_DISCLAIMER) RP_DISCLAIMER.textContent = "";
+  openReportPanel();
 }
 
 function onSessionEnded(sessionId) {
@@ -1573,7 +1955,7 @@ function loadSessionsList() {
         var meta = document.createElement("span");
         meta.className = "session-row-meta";
         meta.textContent = [
-          rpText(item.started_at_iso, "time not recorded"),
+          rpText(rpWhen(item.started_at_iso), "time not recorded"),
           rpDuration(item.duration_s) || "duration not recorded",
           rpText(item.reliability, "ungraded"),
           (item.episode_count === null || item.episode_count === undefined)
@@ -1589,7 +1971,14 @@ function loadSessionsList() {
         SESSIONS_LIST.appendChild(row);
       });
     })
-    .catch(function (e) { console.error("sessions list:", e); });
+    .catch(function (e) {
+      console.error("sessions list:", e);
+      rpClear(SESSIONS_LIST);
+      var err = document.createElement("p");
+      err.className = "rp-empty";
+      err.textContent = "The session list could not be loaded — the server may be restarting.";
+      SESSIONS_LIST.appendChild(err);
+    });
 }
 
 function openSessionsDrawer() {
@@ -1597,11 +1986,25 @@ function openSessionsDrawer() {
   SESSIONS_DRAWER.hidden = false;
   if (SESSIONS_BACKDROP) SESSIONS_BACKDROP.hidden = false;
   loadSessionsList();
+  if (SESSIONS_CLOSE) SESSIONS_CLOSE.focus();
 }
 
 function closeSessionsDrawer() {
+  var wasOpen = SESSIONS_DRAWER && !SESSIONS_DRAWER.hidden;
   if (SESSIONS_DRAWER) SESSIONS_DRAWER.hidden = true;
   if (SESSIONS_BACKDROP) SESSIONS_BACKDROP.hidden = true;
+  if (wasOpen && SESSIONS_LIST_BTN) SESSIONS_LIST_BTN.focus();
+}
+
+// Closed, the report is a fixed one-screen sheet. Opening the audit trail is a
+// deliberate act, so it is allowed to turn the sheet into a scrolling document
+// rather than crushing the summary above it.
+var RP_AUDIT = document.querySelector(".rp-audit");
+if (RP_AUDIT && RP_PANEL) {
+  RP_AUDIT.addEventListener("toggle", function () {
+    RP_PANEL.classList.toggle("audit-open", RP_AUDIT.open);
+    if (RP_AUDIT.open) RP_AUDIT.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  });
 }
 
 if (RP_CLOSE_BTN) RP_CLOSE_BTN.addEventListener("click", closeReportPanel);
@@ -1612,6 +2015,16 @@ if (RP_NEW_BTN) RP_NEW_BTN.addEventListener("click", function () {
 if (SESSIONS_LIST_BTN) SESSIONS_LIST_BTN.addEventListener("click", openSessionsDrawer);
 if (SESSIONS_CLOSE) SESSIONS_CLOSE.addEventListener("click", closeSessionsDrawer);
 if (SESSIONS_BACKDROP) SESSIONS_BACKDROP.addEventListener("click", closeSessionsDrawer);
+
+// ── Overlay keyboard handling ────────────────────────────────────────────────
+// One Escape handler for every layer, closing the topmost open overlay only.
+document.addEventListener("keydown", function (event) {
+  if (event.key !== "Escape") return;
+  if (GUIDE_DRAWER && !GUIDE_DRAWER.hidden) { setGuideOpen(false); return; }
+  if (BM_MODAL && !BM_MODAL.hidden) { closeBreathingModal(); return; }
+  if (SESSION_START_MODAL && !SESSION_START_MODAL.hidden) { closeSessionStartModal(); return; }
+  if (SESSIONS_DRAWER && !SESSIONS_DRAWER.hidden) { closeSessionsDrawer(); return; }
+});
 
 // ── SSE Stream ────────────────────────────────────────────────────────────────
 function initStream() {
@@ -1629,9 +2042,9 @@ function initStream() {
   source.onerror = function(err) {
     console.error("SSE stream error:", err);
     if (CONN_DOT) { CONN_DOT.classList.remove("ok","warn"); CONN_DOT.classList.add("bad"); }
-    if (CONN_TEXT) CONN_TEXT.textContent = "Bluetooth disconnected — reconnecting…";
+    if (CONN_TEXT) CONN_TEXT.textContent = "Lost connection to Saarthi — reconnecting…";
     if (SW_BANNER) {
-      SW_TEXT.textContent = "Connection to server lost";
+      SW_TEXT.textContent = "Lost connection to the Saarthi server — retrying every 3s";
       SW_BANNER.classList.add("sw-danger");
       SW_BANNER.style.display = "flex";
     }

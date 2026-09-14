@@ -2,8 +2,10 @@
   "version": "0.0.1",
   "configurations": [
     {
-      "name": "physio-monitor-mock",
-      "url": "http://127.0.0.1:5000"
+      "name": "saarthi",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["app.py"],
+      "port": 5000
     }
   ]
 }
